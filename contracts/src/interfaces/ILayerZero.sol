@@ -8,11 +8,23 @@ pragma solidity 0.8.28;
 ///      this repository does not need. Every struct and signature below was checked field by field
 ///      against these exact versions:
 ///
-///        @layerzerolabs/lz-evm-protocol-v2  2.0.11
-///        @layerzerolabs/lz-evm-oapp-v2      2.3.44
-///        @stargatefinance/stg-evm-v2        9.0.0
+///        `@layerzerolabs/lz-evm-protocol-v2`  2.0.11
+///        `@layerzerolabs/lz-evm-oapp-v2`      2.3.44
+///        `@stargatefinance/stg-evm-v2`        9.0.0
 ///
-///      Transcribed rather than invented, and the versions are recorded so a reviewer can diff them.
+///      Backticked because a line beginning with `@` is read as a natspec tag, and three unknown tags
+///      is three compiler warnings on every build.
+///
+///      Transcribed rather than invented, and the versions are recorded here rather than in
+///      `vendor/package.json`: `lz-evm-protocol-v2` demands `@openzeppelin/contracts ^4.8.1` as a peer,
+///      this project compiles against 5.1.0, and npm refuses the tree outright. Nothing in those
+///      packages is compiled, so a reviewer diffing them installs them on the side:
+///
+///        npm install --no-save --legacy-peer-deps \
+///          "@layerzerolabs/lz-evm-protocol-v2@2.0.11" \
+///          "@layerzerolabs/lz-evm-oapp-v2@2.3.44" \
+///          "@stargatefinance/stg-evm-v2@9.0.0"
+///
 ///      **Re-check before mainnet**: these are ABI-level dependencies on contracts the DAO does not
 ///      control, and a struct field added upstream would silently change the encoding.
 

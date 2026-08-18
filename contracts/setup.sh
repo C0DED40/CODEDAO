@@ -11,6 +11,8 @@ mkdir -p lib
 [ -d lib/forge-std ] || git clone --depth 1 --branch v1.9.6 https://github.com/foundry-rs/forge-std lib/forge-std
 [ -d lib/ds-test ]   || git clone --depth 1 https://github.com/dapphub/ds-test lib/ds-test
 
-(cd vendor && npm install)
+# `npm install`, not `npm ci`: a transitive @types/node range floats, so a generated lockfile does
+# not satisfy `npm ci`'s in-sync check even immediately after being written.
+(cd vendor && npm install --no-audit --no-fund)
 
 echo "Dependencies ready. Run: forge test"

@@ -1,7 +1,8 @@
 {
   "name": "code-dao-vendor",
+  "version": "0.0.0",
   "private": true,
-  "description": "Solidity dependencies vendored via npm so the build needs no git submodules. The devDependencies are not compiled: they are the sources the LayerZero and Stargate interfaces in src/interfaces/ILayerZero.sol were transcribed from, pinned so a reviewer can diff.",
+  "description": "Solidity dependencies vendored via npm so the build needs no git submodules. The LayerZero and Stargate packages the interfaces in src/interfaces/ILayerZero.sol were transcribed from are deliberately NOT listed here: lz-evm-protocol-v2 2.0.11 requires @openzeppelin/contracts ^4.8.1 as a peer, this project compiles against 5.1.0, and npm refuses the tree. Nothing in those packages is compiled, so a reviewer who wants to diff installs them separately: npm install --no-save --legacy-peer-deps @layerzerolabs/lz-evm-protocol-v2@2.0.11 @layerzerolabs/lz-evm-oapp-v2@2.3.44 @stargatefinance/stg-evm-v2@9.0.0. The versions are also recorded in ILayerZero.sol itself.",
   "dependencies": {
     "@openzeppelin/contracts": "5.1.0",
     "@uniswap/v2-core": "1.0.1",
@@ -10,10 +11,5 @@
     "ds-test": "github:dapphub/ds-test",
     "forge-std": "1.1.2",
     "solady": "0.1.26"
-  },
-  "devDependencies": {
-    "@layerzerolabs/lz-evm-protocol-v2": "2.0.11",
-    "@layerzerolabs/lz-evm-oapp-v2": "2.3.44",
-    "@stargatefinance/stg-evm-v2": "9.0.0"
   }
 }
