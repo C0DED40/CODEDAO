@@ -1,0 +1,21 @@
+{
+  "name": "@code-dao/saine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SAINE agent harness: builds adjudication packages, runs the ten-model board, signs and relays attestations.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "@types/node": "^22.7.0"
+  }
+}

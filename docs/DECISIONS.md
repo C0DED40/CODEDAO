@@ -426,6 +426,66 @@ Pointing it at an ordinary key would put a satellite's slippage bounds and strik
 governance, which §14 does not permit. **This is a deployment requirement, not something the contract
 can enforce**, and it is the sharpest remaining edge in the cross-chain design.
 
+### 2.24 LayerZero moves messages; Stargate moves the value
+
+§9 needs WETH to arrive on the home chain alongside its manifest, and §12 names LayerZero. But raw
+LayerZero V2 messaging cannot move a token: `ILayerZeroEndpointV2.send` carries bytes, nothing more.
+Building against it alone would have produced a receiver holding manifests for value that never came.
+
+The implementation therefore uses Stargate, LayerZero's asset layer, whose `sendToken` carries the
+transfer and a composed message in a single crossing. That matters beyond convenience: bridging value
+and manifest over two channels would open a window where the home chain holds WETH it cannot attribute
+to any vintage, and a replay or reordering on either channel would misroute a return.
+
+Both surfaces are declared locally in `ILayerZero.sol` rather than imported, for the reason given in
+`IExternal.sol`: the real packages drag in the whole OApp stack and its own pinned OpenZeppelin copy.
+Every struct and signature was transcribed field by field from `@layerzerolabs/lz-evm-protocol-v2`
+2.0.11, `@layerzerolabs/lz-evm-oapp-v2` 2.3.44 and `@stargatefinance/stg-evm-v2` 9.0.0, and the
+versions are recorded in the file so a reviewer can diff them. **These are ABI-level dependencies on
+contracts the DAO does not control, so re-check before mainnet**: a struct field added upstream would
+silently change the encoding.
+
+### 2.25 The bridge takes a fee, so the home adapter holds a maintenance buffer
+
+Stargate delivers less than was sent. §9 says infrastructure costs come from the maintenance slice and
+that "stakers' distributions are never haircut by infrastructure", so the shortfall cannot simply be
+passed through to the vintage.
+
+`StargateHomeAdapter` therefore holds a maintenance-funded WETH buffer and covers the difference, so
+the full manifest value reaches the receiver. Only when that buffer is empty does the shortfall fall on
+the repayment, and then it is scaled across the entries pro-rata and announced in a
+`ShortfallSocialised` event. A silent haircut would make §9's promise false in exactly the case where
+nobody was watching, which is the case that matters.
+
+The reverse also has to be handled: a satellite that over-sends produces a surplus, and that surplus
+goes to the buffer that paid for the crossing rather than to whichever vintage happened to be in the
+batch.
+
+### 2.26 Three checks authenticate a delivery, and the third is the one that matters
+
+`lzCompose` is otherwise callable by anyone with a well-formed message. So: only the LayerZero endpoint
+may call it, only the Stargate pool may be the composing sender, and the (source endpoint id,
+composing address) pair must match the registry.
+
+The third is the load-bearing one. Without it, any Stargate user on any connected chain could send a
+dust transfer with a fabricated manifest and have it credited to a vintage of their choosing. The first
+two checks do not catch that, because such a transfer arrives through the genuine endpoint and the
+genuine pool.
+
+The landed amount is also read from the composed message's header, written by the destination-side OFT,
+rather than from the manifest. The manifest is the source chain's claim; the header is the only figure
+the home chain computed itself.
+
+### 2.27 The deploy script is the thing under test
+
+`script/Deploy.s.sol` exposes `DeployLib.deploy` / `wire` / `distribute`, and both integration tests
+call it rather than reimplementing the wiring. A deploy script that nothing exercises is a liability:
+the address predictions in §2.16 depend on an exact deployment order, and a reordering would otherwise
+surface as a live system wired to empty addresses rather than as a failing test.
+
+`CrossChainTest` additionally asserts that every `configurer` is zero after wiring, so nothing in the
+protocol can be rewired outside governance once the deployment finishes.
+
 ---
 
 ## 3. Ruled on after review

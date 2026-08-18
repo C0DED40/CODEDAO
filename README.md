@@ -32,6 +32,8 @@ docs/        Build decisions, parameter table, operator runbook
 | `Receiver.sol` | Home-chain buyback, 50% burn / 50% vintage | §9 |
 | `Targets.sol` | Known-good target registry | §6.2 |
 | `Oracle.sol` | V2 TWAP against Chainlink ETH/USD, staleness guards | §11 |
+| `StargateSatelliteAdapter.sol` | Sends a batch and its manifest in one crossing | §9 |
+| `StargateHomeAdapter.sol` | Receives it, covers the bridge fee from maintenance | §9 |
 
 ## Build
 
@@ -50,7 +52,8 @@ oracle and swap purposes; see `docs/DECISIONS.md` §1.1 for why v2 rather than v
 
 ## Status
 
-All twelve contracts are built and tested; 274 tests pass. A funding proposal runs end to end
+All twelve contracts are built and tested, with the bridge adapters and the deploy script; 297 tests
+pass. A funding proposal runs end to end
 in `test/integration/Lifecycle.t.sol`: Guardian submits, the Many vote, the ten-agent board commits
 and reveals, six approve, the timelock executes, and WETH reaches the investee.
 
