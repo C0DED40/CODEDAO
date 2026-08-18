@@ -71,10 +71,9 @@ contract Oracle is IOracle {
     error OutOfRange();
 
     constructor(IUniswapV2Pair pair_, IAggregatorV3 ethUsdFeed_, address code_, address weth_, address timelock_) {
-        if (
-            address(pair_) == address(0) || code_ == address(0) || weth_ == address(0)
-                || timelock_ == address(0)
-        ) revert ZeroAddress();
+        if (address(pair_) == address(0) || code_ == address(0) || weth_ == address(0) || timelock_ == address(0)) {
+            revert ZeroAddress();
+        }
         pair = pair_;
         ethUsdFeed = ethUsdFeed_;
         code = code_;
@@ -138,9 +137,7 @@ contract Oracle is IOracle {
         // recently still contributes its standing price rather than a gap.
         if (pairTimestamp != timestamp && r0 != 0 && r1 != 0) {
             uint32 gap = timestamp - pairTimestamp;
-            uint256 spotQ112 = codeIsToken0
-                ? (uint256(r1) << 112) / uint256(r0)
-                : (uint256(r0) << 112) / uint256(r1);
+            uint256 spotQ112 = codeIsToken0 ? (uint256(r1) << 112) / uint256(r0) : (uint256(r0) << 112) / uint256(r1);
             cumulative += spotQ112 * gap;
         }
     }

@@ -33,7 +33,8 @@ contract TreasuryTest is Test {
         // The treasury address has to exist before the token that pays it, so deploy in two steps
         // with a placeholder and then fund the real one.
         code = new Code(genesis, makeAddr("taxSink"), maintenance);
-        treasury = new Treasury(IERC20(address(code)), IERC20(address(weth)), IUniswapV2Router02(address(router)), timelock);
+        treasury =
+            new Treasury(IERC20(address(code)), IERC20(address(weth)), IUniswapV2Router02(address(router)), timelock);
         treasury.wire(escrow, ITreasuryOracle(address(oracle)));
 
         address[] memory ex = new address[](3);

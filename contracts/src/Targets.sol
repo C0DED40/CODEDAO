@@ -65,11 +65,7 @@ contract Targets {
     /// @notice Whether every (target, selector) pair in a proposal is registered.
     /// @dev Returns a boolean rather than reverting, because §6.2 lets an unregistered target
     ///      through when it is flagged: the governor records the flag, the agents receive it.
-    function allKnown(address[] calldata targets, bytes4[] calldata selectors)
-        external
-        view
-        returns (bool)
-    {
+    function allKnown(address[] calldata targets, bytes4[] calldata selectors) external view returns (bool) {
         for (uint256 i; i < targets.length; ++i) {
             if (!isKnown[targets[i]][selectors[i]]) return false;
         }

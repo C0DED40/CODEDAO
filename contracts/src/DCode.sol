@@ -254,7 +254,9 @@ contract DCode {
     event WithdrawalCollected(address indexed account, uint256 amount);
     event DelegateChanged(address indexed delegator, address indexed from, address indexed to, uint32 effectiveSeason);
     event SeasonRolled(uint32 indexed season, uint64 start, uint64 end, uint256 totalSnapshot, uint256 manyBase);
-    event BallotRecorded(uint32 indexed season, uint8 indexed slot, address indexed voter, bool support, uint256 weight);
+    event BallotRecorded(
+        uint32 indexed season, uint8 indexed slot, address indexed voter, bool support, uint256 weight
+    );
     event SlotOpened(uint32 indexed season, uint8 indexed slot);
     event SlotVoided(uint32 indexed season, uint8 indexed slot);
     event SlotSettled(uint32 indexed season, uint8 indexed slot, bool approved, uint256 penaltyApplied);
@@ -301,9 +303,7 @@ contract DCode {
         _seasons[0].end = type(uint64).max;
     }
 
-    function wire(address governor_, IVintageVault vault_, address[] calldata protocolContracts)
-        external
-    {
+    function wire(address governor_, IVintageVault vault_, address[] calldata protocolContracts) external {
         if (msg.sender != configurer) revert NotConfigurer();
         governor = governor_;
         vault = vault_;
@@ -554,10 +554,7 @@ contract DCode {
     /// @notice Record a ballot against a scored slot.
     /// @dev Weight is not stored per ballot. The governor supplies the weight it tallied, and the
     ///      only thing kept here is the bit, because the multiplier is a function of the bits.
-    function recordBallot(address voter, uint32 season, uint8 slot, bool support)
-        external
-        onlyGovernor
-    {
+    function recordBallot(address voter, uint32 season, uint8 slot, bool support) external onlyGovernor {
         if (isGuardianIn[season][voter]) revert NotInMany();
         Record storage r = _record[season][voter];
         uint128 bit = uint128(1) << slot;
@@ -598,8 +595,7 @@ contract DCode {
         uint256 effective = slotOpenPower[season][slot];
         uint256 absentWeight = effective > participated ? effective - participated : 0;
 
-        uint256 reduction =
-            (wrongWeight * (PenaltyMath.WAD - PenaltyMath.WRONG_VOTE_MULT)) / PenaltyMath.WAD
+        uint256 reduction = (wrongWeight * (PenaltyMath.WAD - PenaltyMath.WRONG_VOTE_MULT)) / PenaltyMath.WAD
             + (absentWeight * (PenaltyMath.WAD - PenaltyMath.NON_VOTE_MULT)) / PenaltyMath.WAD;
 
         s.manyEffective = s.manyEffective - reduction;
@@ -731,11 +727,7 @@ contract DCode {
     ///      voting window. The governor snapshots the mask when the halt opens and passes it back
     ///      here, which gives every ballot on that halt identical terms without occupying a slot the
     ///      origination queue needs.
-    function ballotWeightForMask(address voter, uint32 season, uint128 mask)
-        public
-        view
-        returns (uint256)
-    {
+    function ballotWeightForMask(address voter, uint32 season, uint128 mask) public view returns (uint256) {
         if (isGuardianIn[season][voter]) return 0;
 
         uint256 base = _delegated[voter].upperLookup(uint48(season == 0 ? 0 : season - 1));
@@ -760,11 +752,7 @@ contract DCode {
         return _multiplierAgainst(account, season, slotOpenMask[season][slot]);
     }
 
-    function _multiplierAgainst(address account, uint32 season, uint128 scored)
-        internal
-        view
-        returns (uint256)
-    {
+    function _multiplierAgainst(address account, uint32 season, uint128 scored) internal view returns (uint256) {
         // Only slots that have actually settled can score anyone; a slot mid-adjudication is not
         // yet a judgement and must not read as an absence.
         if (scored == 0) return PenaltyMath.WAD;
@@ -804,9 +792,8 @@ contract DCode {
         uint256 base = snapshotPrincipalOf(account, season);
         if (base == 0) return 0;
         if (isGuardianIn[season][account]) {
-            return guardianSlashedIn[season][account]
-                ? PenaltyMath.applyMultiplier(base, PenaltyMath.GUARDIAN_MULT)
-                : base;
+            return
+                guardianSlashedIn[season][account] ? PenaltyMath.applyMultiplier(base, PenaltyMath.GUARDIAN_MULT) : base;
         }
         return PenaltyMath.applyMultiplier(base, manyMultiplierOf(account, season));
     }

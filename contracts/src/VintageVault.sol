@@ -92,9 +92,7 @@ contract VintageVault is IVintageVault {
     event Credited(uint32 indexed vintage, uint256 amount, uint256 distributed, uint256 burned);
     event StaleVintageRouted(uint32 indexed vintage, uint256 amount);
     event Claimed(address indexed account, uint256 amount);
-    event WeightContracted(
-        address indexed account, uint32 indexed vintage, uint256 newEffWeight, uint256 settledNow
-    );
+    event WeightContracted(address indexed account, uint32 indexed vintage, uint256 newEffWeight, uint256 settledNow);
     event ResidueSwept(uint256 amount);
     event PhantomWeightBurned(address indexed account, uint32 indexed vintage, uint256 amount);
 
@@ -211,9 +209,8 @@ contract VintageVault is IVintageVault {
         Vintage storage v = _vintages[vintage];
         if (!v.initialised) return 0;
         Position storage p = _positions[vintage][account];
-        (uint256 effWeight, uint256 debt) = p.registered
-            ? (p.effWeight, p.claimDebt)
-            : (dcode.frozenWeightOf(account, vintage), uint256(0));
+        (uint256 effWeight, uint256 debt) =
+            p.registered ? (p.effWeight, p.claimDebt) : (dcode.frozenWeightOf(account, vintage), uint256(0));
         return (effWeight * (v.accReturnPerWeight - debt)) / ACC;
     }
 

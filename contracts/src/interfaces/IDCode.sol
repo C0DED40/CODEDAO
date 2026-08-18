@@ -23,8 +23,7 @@ interface IDCode {
     function ballotWeightForMask(address voter, uint32 season, uint128 mask) external view returns (uint256);
     function currentSettledMask(uint32 season) external view returns (uint128);
     function slotOpenPower(uint32 season, uint8 slot) external view returns (uint256);
-    function settleScoredSlot(uint32 season, uint8 slot, bool approved, uint256 yesWeight, uint256 noWeight)
-        external;
+    function settleScoredSlot(uint32 season, uint8 slot, bool approved, uint256 yesWeight, uint256 noWeight) external;
     function slashGuardian(address guardian, uint32 season) external;
 
     // --- vintage reads ---

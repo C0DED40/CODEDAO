@@ -136,9 +136,8 @@ contract LifecycleTest is Test {
 
         address[10] memory keys;
         bytes32[10] memory providers;
-        bytes32[5] memory pool = [
-            bytes32("anthropic"), bytes32("openai"), bytes32("google"), bytes32("meta"), bytes32("mistral")
-        ];
+        bytes32[5] memory pool =
+            [bytes32("anthropic"), bytes32("openai"), bytes32("google"), bytes32("meta"), bytes32("mistral")];
         for (uint256 i; i < 10; ++i) {
             pk[i] = 0xA11CE + i;
             keys[i] = vm.addr(pk[i]);
@@ -299,9 +298,7 @@ contract LifecycleTest is Test {
             );
             sigs[i] = _sign(
                 pk[i],
-                _digest(
-                    keccak256(abi.encode(COMMIT_TYPEHASH, roundId, i, atts[i].commitment, atts[i].modelHash))
-                )
+                _digest(keccak256(abi.encode(COMMIT_TYPEHASH, roundId, i, atts[i].commitment, atts[i].modelHash)))
             );
         }
         vm.prank(relayer);
@@ -314,10 +311,7 @@ contract LifecycleTest is Test {
         for (uint8 i; i < revealCount; ++i) {
             atts[i] = Saine.RevealAttestation(roundId, i, i < approvals, REASON, _salt(i));
             sigs[i] = _sign(
-                pk[i],
-                _digest(
-                    keccak256(abi.encode(REVEAL_TYPEHASH, roundId, i, i < approvals, REASON, _salt(i)))
-                )
+                pk[i], _digest(keccak256(abi.encode(REVEAL_TYPEHASH, roundId, i, i < approvals, REASON, _salt(i))))
             );
         }
         vm.prank(relayer);
@@ -471,7 +465,9 @@ contract LifecycleTest is Test {
 
         vm.warp(block.timestamp + 30 days + 1);
         uint256 id2 = _propose(whales[1], _fundingInput(investee, 20 ether, keccak256("m2")));
-        assertEq(uint8(governor.getProposal(id2).state), uint8(Governor.State.Active), "the road back is a better proposal");
+        assertEq(
+            uint8(governor.getProposal(id2).state), uint8(Governor.State.Active), "the road back is a better proposal"
+        );
     }
 
     // =================================================================
@@ -655,7 +651,10 @@ contract LifecycleTest is Test {
 
     function test_propose_capsGuardiansAtTwoPerSeason() public {
         for (uint256 i; i < 2; ++i) {
-            uint256 id = _propose(whales[0], _fundingInput(makeAddr(string.concat("inv", vm.toString(i))), 20 ether, keccak256(abi.encode(i))));
+            uint256 id = _propose(
+                whales[0],
+                _fundingInput(makeAddr(string.concat("inv", vm.toString(i))), 20 ether, keccak256(abi.encode(i)))
+            );
             _voteYes(id, 2);
             vm.warp(block.timestamp + 5 days + 1);
             governor.closeVote(id);

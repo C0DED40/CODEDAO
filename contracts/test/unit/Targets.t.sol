@@ -12,7 +12,8 @@ contract TargetsTest is Test {
     address internal router = makeAddr("router");
     address internal stranger = makeAddr("stranger");
 
-    bytes4 internal constant SWAP = bytes4(keccak256("swapExactTokensForTokens(uint256,uint256,address[],address,uint256)"));
+    bytes4 internal constant SWAP =
+        bytes4(keccak256("swapExactTokensForTokens(uint256,uint256,address[],address,uint256)"));
     bytes4 internal constant SET_OWNER = bytes4(keccak256("setOwner(address)"));
 
     function setUp() public {

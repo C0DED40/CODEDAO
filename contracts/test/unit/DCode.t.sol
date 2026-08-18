@@ -348,8 +348,12 @@ contract DCodeTest is Test {
         }
         address[] memory yesTrim = new address[](yn);
         address[] memory noTrim = new address[](nn);
-        for (uint256 i; i < yn; ++i) yesTrim[i] = yes[i];
-        for (uint256 i; i < nn; ++i) noTrim[i] = no[i];
+        for (uint256 i; i < yn; ++i) {
+            yesTrim[i] = yes[i];
+        }
+        for (uint256 i; i < nn; ++i) {
+            noTrim[i] = no[i];
+        }
 
         _adjudicate(verdict, yesTrim, noTrim);
 
@@ -418,11 +422,7 @@ contract DCodeTest is Test {
         dcode.delegate(many[0]);
         _rollToNext();
 
-        assertEq(
-            dcode.ballotWeight(many[0], 2),
-            MANY_STAKE,
-            "a Guardian's stake must not appear in anyone's ballot"
-        );
+        assertEq(dcode.ballotWeight(many[0], 2), MANY_STAKE, "a Guardian's stake must not appear in anyone's ballot");
         assertEq(dcode.voidedGuardianInbound(2, many[0]), WHALE_STAKE + 50e18);
     }
 
@@ -442,11 +442,7 @@ contract DCodeTest is Test {
 
         assertTrue(dcode.isGuardian(grower, 3), "delegate took a seat");
         assertEq(dcode.ballotWeight(grower, 3), 0, "and so casts nothing");
-        assertEq(
-            dcode.resolvedDelegateeOf(many[1], 3),
-            many[1],
-            "the delegation resolves back to its owner"
-        );
+        assertEq(dcode.resolvedDelegateeOf(many[1], 3), many[1], "the delegation resolves back to its owner");
         assertEq(dcode.ballotWeight(many[1], 3), MANY_STAKE, "who can still vote and avoid the 15%");
     }
 

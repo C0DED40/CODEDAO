@@ -81,10 +81,7 @@ contract Code is ERC20, ERC20Permit {
     ///        treasury, sale, team vesting and operator allocations in the same transaction.
     /// @param treasury_ The DAO treasury (§11).
     /// @param maintenance_ The maintenance address (§2.2).
-    constructor(address recipient, address treasury_, address maintenance_)
-        ERC20("CODE", "CODE")
-        ERC20Permit("CODE")
-    {
+    constructor(address recipient, address treasury_, address maintenance_) ERC20("CODE", "CODE") ERC20Permit("CODE") {
         if (recipient == address(0) || treasury_ == address(0) || maintenance_ == address(0)) {
             revert ZeroAddress();
         }

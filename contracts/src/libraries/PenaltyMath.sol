@@ -14,14 +14,14 @@ library PenaltyMath {
     uint256 internal constant WAD = 1e18;
 
     /// @dev §15: Many penalty, wrong vote. 10%, so 90% of weight survives.
-    uint256 internal constant WRONG_VOTE_MULT = 0.90e18;
+    uint256 internal constant WRONG_VOTE_MULT = 0.9e18;
 
     /// @dev §15: Many penalty, non-vote. 15%, so 85% survives. Strictly harsher than a wrong
     ///      vote, which is what makes casting an honest ballot dominate abstention.
     uint256 internal constant NON_VOTE_MULT = 0.85e18;
 
     /// @dev §15: Guardian penalty for sponsoring a SAINE-rejected proposal. 50%.
-    uint256 internal constant GUARDIAN_MULT = 0.50e18;
+    uint256 internal constant GUARDIAN_MULT = 0.5e18;
 
     /// @notice x^n in WAD fixed point by squaring, truncating at every step.
     /// @dev Truncation rounds the multiplier down, so rounding error can only ever make a

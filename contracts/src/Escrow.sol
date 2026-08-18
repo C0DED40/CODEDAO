@@ -4,9 +4,7 @@ pragma solidity 0.8.28;
 import {ITreasury} from "./interfaces/ITreasury.sol";
 
 interface ISaineRounds {
-    function openTrancheRound(uint256 dealId, uint8 index, bytes32 milestone)
-        external
-        returns (uint256 roundId);
+    function openTrancheRound(uint256 dealId, uint8 index, bytes32 milestone) external returns (uint256 roundId);
 }
 
 /// @title Escrow
@@ -608,10 +606,7 @@ contract Escrow {
     ///      never to a founder who has already paid." `viaFloor` records which path the satellite's
     ///      slippage bound forced, and is audit information only. The investee cannot reach this
     ///      function, which is what makes invariant 14 structural rather than procedural.
-    function recordInstallments(uint256 dealId, uint16 count, uint256 wethValue, bool viaFloor)
-        external
-        onlyReceiver
-    {
+    function recordInstallments(uint256 dealId, uint16 count, uint256 wethValue, bool viaFloor) external onlyReceiver {
         Deal storage d = _deals[dealId];
         if (d.state == DealState.None) revert UnknownDeal();
         if (count == 0) revert ZeroAmount();

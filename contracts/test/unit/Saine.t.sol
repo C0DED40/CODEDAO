@@ -97,13 +97,8 @@ contract SaineTest is Test {
 
         saine = new Saine(ICodeBurn(address(code)), timelock, ISeasonClock(address(clock)));
 
-        bytes32[5] memory pool = [
-            bytes32("anthropic"),
-            bytes32("openai"),
-            bytes32("google"),
-            bytes32("meta"),
-            bytes32("mistral")
-        ];
+        bytes32[5] memory pool =
+            [bytes32("anthropic"), bytes32("openai"), bytes32("google"), bytes32("meta"), bytes32("mistral")];
         for (uint256 i; i < 10; ++i) {
             pk[i] = 0xA11CE + i;
             keys[i] = vm.addr(pk[i]);
@@ -158,9 +153,7 @@ contract SaineTest is Test {
         returns (Saine.RevealAttestation memory a, bytes memory sig)
     {
         a = Saine.RevealAttestation(roundId, slot, verdict, keccak256("reason:tokenomics"), salt);
-        bytes32 d = _digest(
-            keccak256(abi.encode(REVEAL_TYPEHASH, roundId, slot, verdict, a.reasonHash, salt))
-        );
+        bytes32 d = _digest(keccak256(abi.encode(REVEAL_TYPEHASH, roundId, slot, verdict, a.reasonHash, salt)));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signer, d);
         sig = abi.encodePacked(r, s, v);
     }

@@ -170,8 +170,7 @@ contract Treasury is ITreasury {
         path[1] = address(weth);
 
         code.forceApprove(address(router), codeIn);
-        uint256[] memory amounts =
-            router.swapExactTokensForTokens(codeIn, minOut, path, to, block.timestamp);
+        uint256[] memory amounts = router.swapExactTokensForTokens(codeIn, minOut, path, to, block.timestamp);
         code.forceApprove(address(router), 0);
 
         delivered = amounts[amounts.length - 1];

@@ -249,13 +249,7 @@ contract Governor is ISaineConsumer {
     // Construction
     // =====================================================================
 
-    constructor(
-        ICodeBurnable2 code_,
-        IDCode dcode_,
-        TimelockController timelock_,
-        Escrow escrow_,
-        Targets targets_
-    ) {
+    constructor(ICodeBurnable2 code_, IDCode dcode_, TimelockController timelock_, Escrow escrow_, Targets targets_) {
         code = code_;
         dcode = dcode_;
         timelock = timelock_;
@@ -606,9 +600,7 @@ contract Governor is ISaineConsumer {
         Actions storage a = _actions[id];
 
         p.state = State.Queued;
-        timelock.scheduleBatch(
-            a.targets, a.values, a.calldatas, bytes32(0), _descriptor(id), timelock.getMinDelay()
-        );
+        timelock.scheduleBatch(a.targets, a.values, a.calldatas, bytes32(0), _descriptor(id), timelock.getMinDelay());
         operationId = timelock.hashOperationBatch(a.targets, a.values, a.calldatas, bytes32(0), _descriptor(id));
         emit Queued(id, operationId);
     }

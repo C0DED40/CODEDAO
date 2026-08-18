@@ -300,10 +300,7 @@ contract Saine is EIP712 {
     /// @dev Both constraints are checked against the board as it would be *after* the change, and
     ///      both revert rather than warn, per invariant 12. The operator cap activates only from the
     ///      phase two trigger; the provider floor holds "in every phase, from the first attestation".
-    function assignSlot(uint8 slot, address operator, address key, bytes32 provider)
-        external
-        onlyTimelock
-    {
+    function assignSlot(uint8 slot, address operator, address key, bytes32 provider) external onlyTimelock {
         if (slot >= SLOTS) revert BadSlot();
         if (operator == address(0) || key == address(0) || provider == bytes32(0)) revert ZeroAddress();
 
@@ -480,9 +477,8 @@ contract Saine is EIP712 {
         uint16 bit = uint16(1) << a.slot;
         if (r.committedMask & bit != 0) revert AlreadyCommitted();
 
-        bytes32 digest = _hashTypedDataV4(
-            keccak256(abi.encode(COMMIT_TYPEHASH, a.roundId, a.slot, a.commitment, a.modelHash))
-        );
+        bytes32 digest =
+            _hashTypedDataV4(keccak256(abi.encode(COMMIT_TYPEHASH, a.roundId, a.slot, a.commitment, a.modelHash)));
         if (ECDSA.recover(digest, sig) != s.key) revert BadSignature();
 
         r.committedMask |= bit;
@@ -620,9 +616,8 @@ contract Saine is EIP712 {
                 IEscrowRelease(escrow).releaseTranche(r.subject, r.trancheIndex);
             }
         } else {
-            ISaineConsumer(governor).onSaineVerdict(
-                r.subject, r.state == RoundState.Approved, r.state == RoundState.Lapsed
-            );
+            ISaineConsumer(governor)
+                .onSaineVerdict(r.subject, r.state == RoundState.Approved, r.state == RoundState.Lapsed);
         }
     }
 
