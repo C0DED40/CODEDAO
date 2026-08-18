@@ -120,6 +120,45 @@ contract Saine is EIP712 {
     mapping(address operator => uint8) public slotsHeld;
 
     // =====================================================================
+    // Attestation fees (§5.8, phase two)
+    // =====================================================================
+
+    /// @notice USD paid per revealed attestation, 18 decimals. Governance-set, zero until it is.
+    /// @dev §5.8: "In phase two, independent operators are paid per attestation from the treasury, giving
+    ///      the DAO a performance lever and operators a reason to stay live."
+    ///
+    ///      The economics only work in one phase without this. In phase one the team runs the board
+    ///      because it is their protocol. A phase-two operator posts a $1,000 bond, pays for inference on
+    ///      every round including the advisory ones nobody voted on, risks a quarter of the bond on a
+    ///      missed reveal and all of it on equivocation, and without a fee receives nothing at all. The
+    ///      rational response is to decline the seat, or to take it and go quiet, which walks the board
+    ///      toward the eight-reveal floor that freezes every outcome.
+    uint256 public attestationFeeUsd;
+
+    /// @notice CODE held to pay attestation fees, funded from the treasury by passed proposal (§11).
+    uint256 public feePool;
+
+    /// @notice CODE held as slot bonds, summed across the board.
+    /// @dev The contract holds two pools of CODE in one balance: bonds, which belong to operators and
+    ///      are burnable only by §15's penalties, and the fee pool, which belongs to the DAO. Tracking
+    ///      the bonded total is what makes the separation provable rather than asserted: every path that
+    ///      credits the fee pool checks the balance against this figure first, so a fee can never be
+    ///      paid out of somebody's bond.
+    uint256 public totalBondedCode;
+
+    /// @notice USD owed to each operator, 18 decimals.
+    /// @dev Credited to the operator who held the slot when the attestation was made, not to whoever holds
+    ///      it now. Slot reassignment is a governance act that can happen at any time (§5.2), and paying
+    ///      the incumbent would let a reassignment take earnings that were already worked for.
+    mapping(address operator => uint256) public owedUsd;
+
+    /// @notice Total USD owed across all operators. The DAO's standing liability.
+    uint256 public totalOwedUsd;
+
+    /// @notice Rounds already accrued, so a re-settlement cannot pay twice.
+    mapping(uint256 roundId => bool) public feesAccrued;
+
+    // =====================================================================
     // Rounds (§5.4)
     // =====================================================================
 
@@ -152,6 +191,12 @@ contract Saine is EIP712 {
         uint16 revealedMask;
         /// @dev Tranche rounds only: which tranche of `subject` is being verified.
         uint8 trancheIndex;
+        /// @dev The attestation fee in force when this round opened, USD with 18 decimals (§5.8).
+        ///      Frozen at open, not read at settlement, so an operator knows what the round pays
+        ///      before spending inference on it. Governance changing the rate mid-round would
+        ///      otherwise reprice work that had already been done. Zero on every round opened
+        ///      before the phase two trigger, and on every round opened while the rate is unset.
+        uint96 feeUsd;
     }
 
     uint256 public roundCount;
@@ -165,6 +210,13 @@ contract Saine is EIP712 {
 
     /// @dev Revealed verdict per slot, meaningful only where `revealedMask` is set.
     mapping(uint256 roundId => mapping(uint8 slot => bool)) public verdictOf;
+
+    /// @dev The operator holding the slot at its first commit, recorded only on rounds that pay a
+    ///      fee. Attestation fees are credited here rather than to whoever holds the slot at
+    ///      settlement: reassignment is a governance act available at any time (§5.2), the reveal is
+    ///      signed by the key frozen at commit and so can only come from this operator, and paying
+    ///      the incumbent would let a reassignment take earnings that were already worked for.
+    mapping(uint256 roundId => mapping(uint8 slot => address)) public roundOperatorOf;
 
     // =====================================================================
     // EIP-712 (decision 1.4)
@@ -210,6 +262,10 @@ contract Saine is EIP712 {
     event RoundSettled(uint256 indexed roundId, RoundState state, uint8 reveals, uint8 approvals);
     event RevealForfeit(uint256 indexed roundId, uint8 indexed slot, uint256 burned);
     event Equivocation(uint256 indexed roundId, uint8 indexed slot, uint256 burnedBond);
+    event AttestationFeeSet(uint256 usdPerAttestation);
+    event FeePoolFunded(address indexed from, uint256 amount, uint256 pool);
+    event FeesAccrued(uint256 indexed roundId, uint8 attestations, uint256 usdPerAttestation);
+    event FeesClaimed(address indexed operator, uint256 usdSettled, uint256 codePaid);
 
     // =====================================================================
     // Errors
@@ -242,6 +298,11 @@ contract Saine is EIP712 {
     error ZeroAddress();
     error ZeroAmount();
     error RoundStillOpen();
+    error NothingOwed();
+    error PoolEmpty();
+    error FeeOutOfRange();
+    error PriceUnavailable();
+    error NothingToSync();
 
     // =====================================================================
     // Construction
@@ -311,6 +372,7 @@ contract Saine is EIP712 {
         if (s.bondCode != 0) {
             uint256 refund = s.bondCode;
             s.bondCode = 0;
+            totalBondedCode -= refund;
             IERC20(address(code)).safeTransfer(previous, refund);
             emit BondWithdrawn(slot, refund);
         }
@@ -391,6 +453,7 @@ contract Saine is EIP712 {
 
         IERC20(address(code)).safeTransferFrom(msg.sender, address(this), amount);
         s.bondCode += amount;
+        totalBondedCode += amount;
         emit BondPosted(slot, amount, s.bondCode);
 
         if (s.suspended && s.bondCode >= bondRequirement()) {
@@ -447,6 +510,8 @@ contract Saine is EIP712 {
         r.commitEnd = uint64(block.timestamp) + COMMIT_WINDOW;
         r.revealEnd = r.commitEnd + REVEAL_WINDOW;
         r.trancheIndex = trancheIndex;
+        // Bounded by `setAttestationFee` to 100e18, so the cast cannot truncate.
+        if (attestationFeeUsd != 0 && phaseTwo()) r.feeUsd = uint96(attestationFeeUsd);
         emit RoundOpened(roundId, kind, subject, r.commitEnd, r.revealEnd);
     }
 
@@ -486,6 +551,8 @@ contract Saine is EIP712 {
         commitmentOf[a.roundId][a.slot] = a.commitment;
         // Frozen here so a later rotation cannot invalidate this round's reveal.
         roundKeyOf[a.roundId][a.slot] = s.key;
+        // Only where there is something to pay, so the phase one path costs nothing extra.
+        if (r.feeUsd != 0) roundOperatorOf[a.roundId][a.slot] = s.operator;
 
         emit Committed(a.roundId, a.slot, a.commitment, a.modelHash);
     }
@@ -568,6 +635,7 @@ contract Saine is EIP712 {
         address operator = s.operator;
 
         s.bondCode = 0;
+        totalBondedCode -= burned;
         s.operator = address(0);
         s.key = address(0);
         s.provider = bytes32(0);
@@ -579,6 +647,12 @@ contract Saine is EIP712 {
         }
 
         if (burned != 0) code.burn(burned);
+
+        // Unpaid work on the round being reported is forfeited along with the bond: a slot that signed
+        // two contradictory attestations did not perform one attestation, it performed an attack. This
+        // reaches only the reported round, since fees on earlier rounds may already have been claimed
+        // and the burned bond is what §5.5 offers as the deterrent.
+        delete roundOperatorOf[a.roundId][a.slot];
 
         emit Equivocation(a.roundId, a.slot, burned);
         emit SlotVacated(a.slot, "equivocation");
@@ -608,6 +682,7 @@ contract Saine is EIP712 {
         }
 
         _applyRevealForfeits(roundId, r);
+        _accrueAttestationFees(roundId, r);
 
         emit RoundSettled(roundId, r.state, r.reveals, r.approvals);
 
@@ -633,9 +708,138 @@ contract Saine is EIP712 {
             uint256 forfeit = (s.bondCode * REVEAL_FORFEIT_BPS) / BPS;
             if (forfeit == 0) continue;
             s.bondCode -= forfeit;
+            totalBondedCode -= forfeit;
             code.burn(forfeit);
             emit RevealForfeit(roundId, i, forfeit);
         }
+    }
+
+    /// @dev Credited on **reveal**, not on commit, and for every outcome including a lapse.
+    ///
+    ///      Not on commit, because §15 already forfeits a quarter of the bond for committing and going
+    ///      silent, and paying for that commitment as well would reward the behaviour the forfeit exists to
+    ///      punish. Reveal is the point at which the slot has actually done the work and published a reason
+    ///      the record can be audited against.
+    ///
+    ///      For every outcome, because a lapse is not the revealing slots' fault. §5.4 lapses a round when
+    ///      fewer than eight reveal, and paying only on approvals and rejections would leave the eight who
+    ///      did their job unpaid because two others went dark. That is the opposite of "a reason to stay
+    ///      live".
+    ///
+    ///      Accrued in USD rather than converted here, deliberately. Converting would mean reading the
+    ///      oracle inside `settleRound`, and a stale average would then revert settlement: on the
+    ///      origination track that also freezes the queue, because invariant 6 allows one proposal at a
+    ///      time. An operator carrying price risk between accrual and claim is a far smaller problem than a
+    ///      protocol that cannot settle a round because a keeper missed an oracle poke.
+    function _accrueAttestationFees(uint256 roundId, Round storage r) internal {
+        // The rate and the phase test were both settled when the round opened.
+        uint256 rate = r.feeUsd;
+        if (rate == 0) return;
+        if (feesAccrued[roundId]) return;
+        feesAccrued[roundId] = true;
+
+        uint16 revealed = r.revealedMask;
+        uint8 paid;
+        uint256 credited;
+        for (uint8 i; i < SLOTS; ++i) {
+            if (revealed & (uint16(1) << i) == 0) continue;
+            address operator = roundOperatorOf[roundId][i];
+            // Zero only where the record was cleared by an equivocation report on this round.
+            if (operator == address(0)) continue;
+            owedUsd[operator] += rate;
+            credited += rate;
+            ++paid;
+        }
+        if (paid == 0) return;
+        totalOwedUsd += credited;
+        emit FeesAccrued(roundId, paid, rate);
+    }
+
+    /// @notice Fund the fee pool by approval. Anyone may.
+    function fundFeePool(uint256 amount) external {
+        if (amount == 0) revert ZeroAmount();
+        IERC20(address(code)).safeTransferFrom(msg.sender, address(this), amount);
+        feePool += amount;
+        emit FeePoolFunded(msg.sender, amount, feePool);
+    }
+
+    /// @notice Credit CODE already sent here to the fee pool. Permissionless.
+    /// @dev This is the path governance actually uses. `Treasury.spend` pushes tokens to a recipient;
+    ///      it cannot approve a spender, so a proposal that funded the pool through `fundFeePool` would
+    ///      have to route the DAO's CODE through some intermediary account first. A proposal instead
+    ///      pairs `treasury.spend(code, saine, amount)` with a call to this, and the CODE never leaves
+    ///      protocol contracts.
+    ///
+    ///      Crediting only the surplus over the bonded total is what keeps the two pools separate: a
+    ///      caller cannot conjure fee-pool balance out of operators' bonds, however it is called and in
+    ///      whatever order.
+    function syncFeePool() external returns (uint256 added) {
+        uint256 held = IERC20(address(code)).balanceOf(address(this));
+        uint256 accounted = totalBondedCode + feePool;
+        if (held <= accounted) revert NothingToSync();
+        added = held - accounted;
+        feePool += added;
+        emit FeePoolFunded(msg.sender, added, feePool);
+    }
+
+    /// @notice Set the per-attestation fee. Timelock only (§14, invariant 18).
+    /// @dev The rate is the DAO's lever on the board's economics, and the ceiling exists because this
+    ///      function spends treasury capital on a recurring basis: at ten slots across three tracks, a rate
+    ///      set carelessly high compounds quickly. Slot reassignment remains the sharper lever on a
+    ///      specific operator's performance; this one prices the work.
+    function setAttestationFee(uint256 usdPerAttestation) external onlyTimelock {
+        if (usdPerAttestation > 100e18) revert FeeOutOfRange();
+        attestationFeeUsd = usdPerAttestation;
+        emit AttestationFeeSet(usdPerAttestation);
+    }
+
+    /// @notice Pay an operator what they have accrued, converted to CODE at the oracle price.
+    /// @dev Pays what the pool can cover and leaves the remainder owed rather than discarding it. An
+    ///      unfunded pool is a governance failure, not an operator's, and silently zeroing what they earned
+    ///      would make the fee worthless as a commitment.
+    ///
+    ///      Permissionless, and the recipient is the named operator rather than the caller. The operator
+    ///      address is whatever governance assigned to the seat (§5.2), which may well be a multisig or a
+    ///      cold key that has no business sending routine transactions; requiring it to call would make
+    ///      earnings awkward to collect for exactly the operators most carefully set up. Nobody can
+    ///      redirect a payment, and because the debt is denominated in USD rather than CODE, claiming it
+    ///      early or late delivers the same value, so there is nothing to gain by claiming on somebody
+    ///      else's behalf either.
+    function claimAttestationFees(address operator) external returns (uint256 codePaid) {
+        uint256 owed = owedUsd[operator];
+        if (owed == 0) revert NothingOwed();
+        if (feePool == 0) revert PoolEmpty();
+
+        uint256 price = oracle.codeUsdPrice();
+        if (price == 0) revert PriceUnavailable();
+        uint256 wanted = (owed * 1e18) / price;
+
+        uint256 usdSettled = owed;
+        codePaid = wanted;
+        if (codePaid > feePool) {
+            codePaid = feePool;
+            // Settle only the proportion the pool covered, so the rest stays owed at its USD value.
+            usdSettled = (codePaid * price) / 1e18;
+            if (usdSettled > owed) usdSettled = owed;
+        }
+
+        owedUsd[operator] = owed - usdSettled;
+        totalOwedUsd -= usdSettled;
+        feePool -= codePaid;
+
+        IERC20(address(code)).safeTransfer(operator, codePaid);
+        emit FeesClaimed(operator, usdSettled, codePaid);
+    }
+
+    /// @notice CODE the pool would need to clear every outstanding claim at the current price.
+    /// @dev For governance: an unfunded liability that grows every round is a board that will stop
+    ///      attesting, and the whole point of the fee is that it does not.
+    function feeShortfallCode() external view returns (uint256) {
+        if (totalOwedUsd == 0) return 0;
+        uint256 price = oracle.codeUsdPrice();
+        if (price == 0) revert PriceUnavailable();
+        uint256 needed = (totalOwedUsd * 1e18) / price;
+        return needed > feePool ? needed - feePool : 0;
     }
 
     // =====================================================================

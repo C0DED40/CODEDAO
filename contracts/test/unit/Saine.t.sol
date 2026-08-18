@@ -9,11 +9,23 @@ import {IOracle} from "../../src/interfaces/ISaineConsumer.sol";
 contract OracleStub is IOracle {
     uint256 public price = 0.02e18; // $0.02 per CODE, so a $1,000 bond is 50,000 CODE
 
+    /// @dev The real oracle reverts on a stale average or a stale feed rather than returning a
+    ///      number, so anything that must work without a fresh price has to be tested against a
+    ///      reverting read, not a zero one.
+    bool public broken;
+
+    error Stale();
+
     function setPrice(uint256 p) external {
         price = p;
     }
 
+    function setBroken(bool b) external {
+        broken = b;
+    }
+
     function codeUsdPrice() external view returns (uint256) {
+        if (broken) revert Stale();
         return price;
     }
 
@@ -81,6 +93,7 @@ contract SaineTest is Test {
     uint256[10] internal pk;
     address[10] internal keys;
     bytes32[10] internal providers;
+    address[5] internal ops;
 
     bytes32 internal constant COMMIT_TYPEHASH =
         keccak256("Commit(uint256 roundId,uint8 slot,bytes32 commitment,bytes32 modelHash)");
@@ -601,5 +614,458 @@ contract SaineTest is Test {
         uint256 id = _runRound(10, 10, 6);
         vm.expectRevert(Saine.RoundNotOpen.selector);
         saine.settleRound(id);
+    }
+
+    // =================================================================
+    // Attestation fees (§5.8)
+    // =================================================================
+
+    uint256 internal constant RATE = 5e18; // $5 per attestation
+
+    function _phaseTwo() internal {
+        clock.setSeason(9); // §15: phase two begins at the end of season 8
+        assertTrue(saine.phaseTwo());
+    }
+
+    function _setRate(uint256 usd) internal {
+        vm.prank(timelock);
+        saine.setAttestationFee(usd);
+    }
+
+    function _fundPool(uint256 amount) internal {
+        vm.prank(genesis);
+        code.transfer(address(this), amount);
+        code.approve(address(saine), amount);
+        saine.fundFeePool(amount);
+    }
+
+    /// @dev Replace the team's ten seats with five independent operators holding two each, which is
+    ///      the phase two board §5.2 caps at. Keys and providers are unchanged so the signing helpers
+    ///      still work and the provider floor still holds.
+    function _seatIndependents() internal {
+        for (uint256 j; j < 5; ++j) {
+            ops[j] = makeAddr(string.concat("op", vm.toString(j)));
+        }
+        vm.startPrank(timelock);
+        for (uint8 i; i < 10; ++i) {
+            saine.assignSlot(i, ops[i / 2], keys[i], providers[i]);
+        }
+        vm.stopPrank();
+
+        // The bond does not travel with the seat, so each incoming operator posts their own.
+        for (uint256 j; j < 5; ++j) {
+            vm.prank(genesis);
+            code.transfer(ops[j], 100_000e18);
+            vm.startPrank(ops[j]);
+            code.approve(address(saine), type(uint256).max);
+            saine.postBond(uint8(j * 2), 50_000e18);
+            saine.postBond(uint8(j * 2 + 1), 50_000e18);
+            vm.stopPrank();
+        }
+    }
+
+    function test_fees_defaultToZeroSoNothingChangesUntilGovernanceActs() public {
+        assertEq(saine.attestationFeeUsd(), 0);
+        _phaseTwo();
+        uint256 id = _runRound(10, 10, 6);
+        assertEq(saine.owedUsd(teamOperator), 0);
+        assertEq(saine.totalOwedUsd(), 0);
+        assertFalse(saine.feesAccrued(id));
+    }
+
+    function test_fees_payNothingBeforeThePhaseTwoTrigger() public {
+        // §5.8 scopes payment to phase two: before the trigger the operators are the team, running
+        // the board they built.
+        _setRate(RATE);
+        assertFalse(saine.phaseTwo());
+        uint256 id = _runRound(10, 10, 6);
+        assertEq(saine.owedUsd(teamOperator), 0, "phase one attests for free");
+        assertEq(saine.getRound(id).feeUsd, 0);
+    }
+
+    function test_fees_accrueOnEveryRevealAfterTheTrigger() public {
+        _phaseTwo();
+        _setRate(RATE);
+        uint256 id = _runRound(10, 10, 6);
+        assertEq(saine.owedUsd(teamOperator), 10 * RATE);
+        assertEq(saine.totalOwedUsd(), 10 * RATE);
+        assertTrue(saine.feesAccrued(id));
+    }
+
+    function test_fees_areCreditedPerSlotNotPerBoard() public {
+        _phaseTwo();
+        _setRate(RATE);
+        _seatIndependents();
+        _runRound(10, 10, 6);
+        for (uint256 j; j < 5; ++j) {
+            assertEq(saine.owedUsd(ops[j]), 2 * RATE, "two seats, two attestations");
+        }
+        assertEq(saine.totalOwedUsd(), 10 * RATE);
+    }
+
+    function test_fees_committingThenGoingSilentEarnsNothing() public {
+        // §15 already forfeits a quarter of the bond for this. Paying for the commitment as well
+        // would reward exactly the behaviour the forfeit exists to punish.
+        _phaseTwo();
+        _setRate(RATE);
+        _seatIndependents();
+        _runRound(10, 8, 6); // slots 8 and 9 commit and never reveal
+
+        assertEq(saine.owedUsd(ops[4]), 0, "held slots 8 and 9");
+        assertEq(saine.owedUsd(ops[0]), 2 * RATE);
+        assertEq(saine.totalOwedUsd(), 8 * RATE);
+        assertEq(saine.getSlot(8).bondCode, 37_500e18, "and the forfeit still lands");
+    }
+
+    function test_fees_notCommittingAtAllEarnsNothingEither() public {
+        _phaseTwo();
+        _setRate(RATE);
+        _seatIndependents();
+        _runRound(8, 8, 6); // slots 8 and 9 sit the round out entirely
+
+        assertEq(saine.owedUsd(ops[4]), 0);
+        assertEq(saine.totalOwedUsd(), 8 * RATE);
+        assertEq(saine.getSlot(8).bondCode, 50_000e18, "declining to attest is not an offence");
+    }
+
+    function test_fees_accrueOnALapsedRound() public {
+        // A lapse is not the revealing slots' fault. Paying only on approvals and rejections would
+        // leave the seven who did their job unpaid because three others went dark, which is the
+        // opposite of "a reason to stay live".
+        _phaseTwo();
+        _setRate(RATE);
+        _seatIndependents();
+        uint256 id = _runRound(7, 7, 4);
+
+        assertEq(uint8(saine.getRound(id).state), uint8(Saine.RoundState.Lapsed));
+        assertEq(saine.totalOwedUsd(), 7 * RATE);
+        assertEq(saine.owedUsd(ops[0]), 2 * RATE);
+        assertEq(saine.owedUsd(ops[3]), RATE, "slot 6 revealed, slot 7 did not");
+    }
+
+    function test_fees_rateIsFrozenWhenTheRoundOpens() public {
+        // An operator has to know what a round pays before spending inference on it.
+        _phaseTwo();
+        _setRate(RATE);
+        uint256 id = _openOrigination();
+        assertEq(saine.getRound(id).feeUsd, RATE);
+
+        _setRate(100e18); // governance raises the rate mid-round
+        _commitMany(id, 10, 6);
+        vm.warp(block.timestamp + 24 hours + 1);
+        _revealMany(id, 10, 6);
+        saine.settleRound(id);
+
+        assertEq(saine.owedUsd(teamOperator), 10 * RATE, "paid at the rate in force at open");
+    }
+
+    function test_fees_aRoundOpenedUnpaidStaysUnpaid() public {
+        _phaseTwo();
+        uint256 id = _openOrigination(); // rate still zero
+        _setRate(RATE);
+        _commitMany(id, 10, 6);
+        vm.warp(block.timestamp + 24 hours + 1);
+        _revealMany(id, 10, 6);
+        saine.settleRound(id);
+
+        assertEq(saine.owedUsd(teamOperator), 0);
+        assertFalse(saine.feesAccrued(id));
+    }
+
+    function test_fees_areCreditedToTheAttestingOperatorNotTheIncumbent() public {
+        // Reassignment is a governance act available at any time (§5.2). Paying the incumbent would
+        // let it take earnings that were already worked for.
+        _phaseTwo();
+        _setRate(RATE);
+        _seatIndependents();
+        uint256 id = _openOrigination();
+        _commitMany(id, 10, 6);
+        assertEq(saine.roundOperatorOf(id, 0), ops[0]);
+
+        address successor = makeAddr("successor");
+        vm.prank(timelock);
+        saine.assignSlot(0, successor, keys[0], providers[0]);
+
+        vm.warp(block.timestamp + 24 hours + 1);
+        _revealMany(id, 10, 6); // the reveal is signed by the key frozen at commit, so it still lands
+        vm.warp(block.timestamp + 24 hours + 1);
+        saine.settleRound(id);
+
+        assertEq(saine.owedUsd(ops[0]), 2 * RATE, "still paid for the work it did");
+        assertEq(saine.owedUsd(successor), 0, "and the successor earns from its own rounds only");
+    }
+
+    function test_fees_equivocationForfeitsTheReportedRoundsFee() public {
+        _phaseTwo();
+        _setRate(RATE);
+        _seatIndependents();
+        uint256 id = _openOrigination();
+        _commitMany(id, 10, 6);
+        vm.warp(block.timestamp + 24 hours + 1);
+        _revealMany(id, 10, 6);
+
+        (Saine.RevealAttestation memory a, bytes memory sigA) = _signReveal(id, 0, true, _salt(0), pk[0]);
+        (Saine.RevealAttestation memory b, bytes memory sigB) = _signReveal(id, 0, false, _salt(0), pk[0]);
+        saine.reportEquivocation(a, sigA, b, sigB);
+
+        vm.warp(block.timestamp + 24 hours + 1);
+        saine.settleRound(id);
+
+        assertEq(saine.owedUsd(ops[0]), RATE, "slot 1 paid, slot 0 forfeited with the bond");
+        assertEq(saine.totalOwedUsd(), 9 * RATE);
+    }
+
+    function test_fees_settlementCannotBeBlockedByAStaleOracle() public {
+        // Accrual is in USD precisely so that settlement never reads a price. A revert here would
+        // freeze the origination queue, since invariant 6 allows one proposal at a time.
+        _phaseTwo();
+        _setRate(RATE);
+        uint256 id = _openOrigination();
+        _commitMany(id, 10, 6);
+        vm.warp(block.timestamp + 24 hours + 1);
+        _revealMany(id, 10, 6);
+
+        oracle.setBroken(true);
+        vm.warp(block.timestamp + 24 hours + 1);
+        saine.settleRound(id);
+        assertEq(saine.owedUsd(teamOperator), 10 * RATE);
+        assertTrue(governor.lastApproved(), "and the verdict still reaches the governor");
+    }
+
+    function test_fees_setRateIsTimelockOnly() public {
+        vm.prank(teamOperator);
+        vm.expectRevert(Saine.NotTimelock.selector);
+        saine.setAttestationFee(RATE);
+    }
+
+    function test_fees_setRateIsBounded() public {
+        _setRate(100e18); // the ceiling itself is allowed
+        assertEq(saine.attestationFeeUsd(), 100e18);
+        vm.prank(timelock);
+        vm.expectRevert(Saine.FeeOutOfRange.selector);
+        saine.setAttestationFee(100e18 + 1);
+    }
+
+    function test_fees_poolIsFundedByAnyoneAndCountedSeparatelyFromBonds() public {
+        assertEq(code.balanceOf(address(saine)), 500_000e18, "ten bonds and no pool");
+        _fundPool(10_000e18);
+        assertEq(saine.feePool(), 10_000e18);
+        assertEq(saine.totalBondedCode(), 500_000e18);
+        assertEq(code.balanceOf(address(saine)), 510_000e18);
+
+        vm.expectRevert(Saine.ZeroAmount.selector);
+        saine.fundFeePool(0);
+    }
+
+    function test_fees_claimPaysAtTheOraclePrice() public {
+        _phaseTwo();
+        _setRate(RATE);
+        _runRound(10, 10, 6);
+        _fundPool(10_000e18);
+
+        uint256 before = code.balanceOf(teamOperator);
+        vm.prank(makeAddr("a keeper with no stake in it"));
+        uint256 paid = saine.claimAttestationFees(teamOperator);
+
+        // $50 owed at $0.02 per CODE.
+        assertEq(paid, 2_500e18);
+        assertEq(code.balanceOf(teamOperator) - before, 2_500e18, "and no tax on the way out");
+        assertEq(saine.owedUsd(teamOperator), 0);
+        assertEq(saine.totalOwedUsd(), 0);
+        assertEq(saine.feePool(), 7_500e18);
+    }
+
+    function test_fees_claimTracksThePriceRatherThanTheCodeAmount() public {
+        _phaseTwo();
+        _setRate(RATE);
+        _runRound(10, 10, 6);
+        _fundPool(10_000e18);
+
+        oracle.setPrice(0.01e18); // CODE halves between accrual and claim
+        assertEq(saine.claimAttestationFees(teamOperator), 5_000e18, "the debt is denominated in USD");
+    }
+
+    function test_fees_partialPaymentLeavesTheRemainderOwed() public {
+        // An unfunded pool is a governance failure, not an operator's. Zeroing what they earned
+        // would make the fee worthless as a commitment.
+        _phaseTwo();
+        _setRate(RATE);
+        _runRound(10, 10, 6);
+        _fundPool(1_000e18); // covers $20 of the $50 owed
+
+        assertEq(saine.claimAttestationFees(teamOperator), 1_000e18);
+        assertEq(saine.feePool(), 0);
+        assertEq(saine.owedUsd(teamOperator), 30e18, "the rest stays owed at its USD value");
+        assertEq(saine.totalOwedUsd(), 30e18);
+
+        // Topping the pool up later clears it.
+        _fundPool(1_500e18);
+        assertEq(saine.claimAttestationFees(teamOperator), 1_500e18);
+        assertEq(saine.owedUsd(teamOperator), 0);
+    }
+
+    function test_fees_claimPaysTheOperatorAndNeverTheCaller() public {
+        _phaseTwo();
+        _setRate(RATE);
+        _runRound(10, 10, 6);
+        _fundPool(10_000e18);
+
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        saine.claimAttestationFees(teamOperator);
+        assertEq(code.balanceOf(stranger), 0, "the caller cannot redirect a payment");
+        assertEq(saine.owedUsd(teamOperator), 0);
+    }
+
+    function test_fees_claimRevertsWithNothingOwed() public {
+        _fundPool(10_000e18);
+        vm.expectRevert(Saine.NothingOwed.selector);
+        saine.claimAttestationFees(teamOperator);
+    }
+
+    function test_fees_claimCannotReachTheBonds() public {
+        _phaseTwo();
+        _setRate(RATE);
+        _runRound(10, 10, 6);
+        assertEq(code.balanceOf(address(saine)), 500_000e18, "held entirely as bonds");
+
+        vm.expectRevert(Saine.PoolEmpty.selector);
+        saine.claimAttestationFees(teamOperator);
+    }
+
+    function test_fees_claimRevertsRatherThanDividingByZero() public {
+        _phaseTwo();
+        _setRate(RATE);
+        _runRound(10, 10, 6);
+        _fundPool(10_000e18);
+
+        oracle.setPrice(0);
+        vm.expectRevert(Saine.PriceUnavailable.selector);
+        saine.claimAttestationFees(teamOperator);
+    }
+
+    function test_fees_shortfallReportsTheUnfundedLiability() public {
+        _phaseTwo();
+        _setRate(RATE);
+        assertEq(saine.feeShortfallCode(), 0, "nothing owed, nothing short");
+
+        _runRound(10, 10, 6);
+        assertEq(saine.feeShortfallCode(), 2_500e18, "$50 at $0.02, with an empty pool");
+
+        _fundPool(1_000e18);
+        assertEq(saine.feeShortfallCode(), 1_500e18);
+
+        _fundPool(2_000e18);
+        assertEq(saine.feeShortfallCode(), 0, "over-funded reads as zero, not negative");
+    }
+
+    function test_fees_settleCannotPayTwice() public {
+        _phaseTwo();
+        _setRate(RATE);
+        uint256 id = _runRound(10, 10, 6);
+        uint256 owed = saine.owedUsd(teamOperator);
+
+        vm.expectRevert(Saine.RoundNotOpen.selector);
+        saine.settleRound(id);
+        assertEq(saine.owedUsd(teamOperator), owed);
+    }
+
+    function test_fees_accrueAcrossAllThreeTracks() public {
+        _phaseTwo();
+        _setRate(RATE);
+
+        uint256 tranche = escrow.openTrancheRound(saine, 7, 1);
+        _commitMany(tranche, 10, 6);
+        vm.warp(block.timestamp + 24 hours + 1);
+        _revealMany(tranche, 10, 6);
+        saine.settleRound(tranche);
+        assertEq(saine.owedUsd(teamOperator), 10 * RATE, "tranche verification is attestation too");
+
+        vm.prank(address(governor));
+        uint256 advisory = saine.openRound(Saine.RoundKind.Advisory, 99);
+        _commitMany(advisory, 10, 6);
+        vm.warp(block.timestamp + 24 hours + 1);
+        _revealMany(advisory, 10, 6);
+        vm.warp(block.timestamp + 24 hours + 1);
+        saine.settleRound(advisory);
+        assertEq(saine.owedUsd(teamOperator), 20 * RATE, "advisory rounds cost inference like any other");
+    }
+
+    function test_fees_poolIsCreditedFromAPushedTransfer() public {
+        // The path governance uses: `treasury.spend(code, saine, amount)` then `syncFeePool()`.
+        vm.prank(genesis);
+        code.transfer(address(saine), 10_000e18);
+        assertEq(saine.feePool(), 0, "an unsynced transfer credits nothing on its own");
+
+        vm.prank(makeAddr("anybody"));
+        assertEq(saine.syncFeePool(), 10_000e18);
+        assertEq(saine.feePool(), 10_000e18);
+
+        vm.expectRevert(Saine.NothingToSync.selector);
+        saine.syncFeePool();
+    }
+
+    function test_fees_syncCannotCreditBondsAsPoolBalance() public {
+        // 500,000 CODE of bonds sit in this contract and none of it is the DAO's to spend.
+        assertEq(saine.totalBondedCode(), 500_000e18);
+        assertEq(code.balanceOf(address(saine)), 500_000e18);
+        vm.expectRevert(Saine.NothingToSync.selector);
+        saine.syncFeePool();
+    }
+
+    function _assertNoCommingling() internal view {
+        assertEq(
+            code.balanceOf(address(saine)),
+            saine.totalBondedCode() + saine.feePool(),
+            "every CODE here is either a bond or the fee pool"
+        );
+    }
+
+    function test_fees_bondAccountingHoldsAcrossEveryPath() public {
+        _fundPool(10_000e18);
+        _assertNoCommingling();
+
+        // A reassignment refunds the outgoing bond. The key carries over so the signing helpers
+        // still work; what matters here is the accounting, not who holds the seat.
+        vm.prank(timelock);
+        saine.assignSlot(0, makeAddr("successor"), keys[0], providers[0]);
+        assertEq(saine.totalBondedCode(), 450_000e18);
+        _assertNoCommingling();
+
+        // A reveal forfeit burns a quarter of one bond.
+        uint256 id = _openOrigination();
+        _commitMany(id, 10, 6);
+        vm.warp(block.timestamp + 24 hours + 1);
+        _revealMany(id, 8, 6); // slots 8 and 9 go silent
+        vm.warp(block.timestamp + 24 hours + 1);
+        saine.settleRound(id);
+        assertEq(saine.totalBondedCode(), 450_000e18 - 25_000e18, "two forfeits of 12,500");
+        _assertNoCommingling();
+
+        // An equivocation burns a whole bond.
+        (Saine.RevealAttestation memory a, bytes memory sigA) = _signReveal(id, 1, true, _salt(1), pk[1]);
+        (Saine.RevealAttestation memory b, bytes memory sigB) = _signReveal(id, 1, false, _salt(1), pk[1]);
+        saine.reportEquivocation(a, sigA, b, sigB);
+        assertEq(saine.totalBondedCode(), 375_000e18);
+        _assertNoCommingling();
+
+        // And the pool is untouched by all of it.
+        assertEq(saine.feePool(), 10_000e18);
+    }
+
+    function test_fees_aPushedTransferCannotBeClaimedBeforeItIsSynced() public {
+        _phaseTwo();
+        _setRate(RATE);
+        _runRound(10, 10, 6);
+
+        vm.prank(genesis);
+        code.transfer(address(saine), 10_000e18);
+
+        vm.expectRevert(Saine.PoolEmpty.selector);
+        saine.claimAttestationFees(teamOperator);
+
+        saine.syncFeePool();
+        assertEq(saine.claimAttestationFees(teamOperator), 2_500e18);
+        _assertNoCommingling();
     }
 }

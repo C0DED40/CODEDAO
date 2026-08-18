@@ -25,6 +25,8 @@ Compiled as constants. Changing any of these is a redeploy, not a proposal.
 | Provider diversity | min 4 providers all phases; 2-slot operator cap from phase two | `Saine` |
 | Operator bond | $1,000 of CODE per slot, revalued each boundary | `Saine` |
 | Reveal-failure forfeit | 25% of slot bond, burned | `Saine` |
+| Attestation fee | 0 at genesis, set by governance, ceiling $100 per attestation | `Saine.attestationFeeUsd` |
+| Attestation fee scope | phase two only, per revealed attestation, USD-denominated | `Saine` |
 | Proposal bond | $1,000 of liquid CODE | governor |
 | Per-deal cap | 0.5% of treasury balance at TWAP | `Treasury` |
 | Per-deal floor | 5 WETH; ceiling is the greater of cap and floor | `Treasury` |

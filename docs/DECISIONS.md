@@ -486,6 +486,118 @@ surface as a live system wired to empty addresses rather than as a failing test.
 `CrossChainTest` additionally asserts that every `configurer` is zero after wiring, so nothing in the
 protocol can be rewired outside governance once the deployment finishes.
 
+### 2.28 Attestation fees accrue in USD, are frozen at round open, and belong to the operator who committed
+
+§5.8 promises that "in phase two, independent operators are paid per attestation from the treasury,
+giving the DAO a performance lever and operators a reason to stay live". Nothing in the contracts paid
+anybody, and the omission is not cosmetic. A phase-two operator posts a $1,000 bond, pays for inference
+on every round including the advisory ones nobody voted on, risks a quarter of the bond on a missed
+reveal and all of it on equivocation, and without a fee receives nothing at all. The rational response
+is to decline the seat, or to take it and go quiet, which walks the board toward the eight-reveal floor
+that freezes every outcome. Four judgement calls inside the mechanism:
+
+**Accrued in USD, not converted at settlement.** Converting would mean reading the oracle inside
+`settleRound`, and a stale average would then revert settlement. On the origination track that also
+freezes the queue, because invariant 6 allows one proposal at a time, so a missed keeper poke would
+become a governance halt. An operator carrying price risk between accrual and claim is a much smaller
+problem. `test_fees_settlementCannotBeBlockedByAStaleOracle` pins it.
+
+**The rate is frozen when the round opens.** Reading `attestationFeeUsd` at settlement would let
+governance reprice work already done, and reading it at each reveal would pay early revealers more than
+late ones in the same round. Freezing it at open means an operator knows what a round pays before
+spending inference on it. It also folds the phase test in: a round opened in phase one pays nothing
+however long it stays open.
+
+**Credited on reveal, for every outcome including a lapse.** Not on commit, because §15 already forfeits
+a quarter of the bond for committing and going silent, and paying for the commitment as well would
+reward exactly the behaviour the forfeit punishes. For every outcome, because a lapse is not the
+revealing slots' fault: paying only on approvals and rejections would leave the eight who did their job
+unpaid because two others went dark, which is the opposite of "a reason to stay live".
+
+**Credited to the operator who held the seat at commit, not the incumbent at settlement.** Reassignment
+is a governance act available at any time (§5.2), the reveal is signed by the key frozen at commit and so
+can only have come from the committing operator, and paying whoever holds the seat when the round settles
+would let a reassignment take earnings that were already worked for. `roundOperatorOf` is written only on
+rounds that actually pay, so phase one costs no extra gas. An equivocation report clears that record for
+the reported round: a slot that signed two contradictory attestations did not perform an attestation.
+
+Claiming is permissionless with a fixed recipient. The operator address is whatever governance assigned,
+which may be a multisig or a cold key with no business sending routine transactions, so anyone may
+trigger the payment and it can only ever go to the operator. Because the debt is USD-denominated, timing
+the claim gains nothing, so there is no griefing angle in claiming on somebody's behalf.
+
+### 2.29 The fee pool is funded by push and sync, because `Treasury.spend` cannot approve a spender
+
+The obvious shape is `fundFeePool(amount)` pulling with `transferFrom`, and it is unusable by the only
+party that matters. `Treasury.spend` pushes tokens to a recipient; it has no approve path. A proposal
+funding the pool through a pull would have to route the DAO's CODE through some intermediary account
+first, which is precisely the kind of call §6.2's manifest rules exist to make suspicious. So a proposal
+pairs `treasury.spend(code, saine, amount)` with `saine.syncFeePool()`, and the CODE never leaves
+protocol contracts. `test_fees_governanceFundsThePoolThroughTheTreasury` runs it end to end
+through the real governor, timelock and treasury.
+
+The sync is permissionless and the keeper runs it, so a proposal carries only the spend: since the
+registry track (§2.30) forbids parameter proposals from targeting the registry, the two calls can no
+longer travel together, and they do not need to. CODE delivered to the registry sits uncredited until
+someone syncs it, and anyone can.
+
+`syncFeePool` credits only the surplus over `totalBondedCode + feePool`, which is why that running total
+exists. The registry holds two pools of CODE in one balance: bonds, which belong to operators and are
+burnable only by §15's penalties, and the fee pool, which belongs to the DAO. Tracking the bonded total
+makes the separation provable rather than asserted, and every test that touches a bond asserts
+`balanceOf(saine) == totalBondedCode + feePool` afterwards.
+
+Neither `fundFeePool` nor `setAttestationFee` is seeded into the known-target registry, deliberately.
+§6.2's registry sorts calls into routine ones the agents can skim and novel ones the package flags for
+close reading, and a proposal that pays the board is the second kind.
+
+### 2.30 A fourth track, for proposals the board cannot veto
+
+Every binding proposal passed through SAINE, including a parameter proposal that reassigned a slot. That
+is circular: a board with a reason to stay seated could reject its own replacement, and rejecting it
+would also slash the Guardian who proposed it and every voter who agreed, under §7.2 and §7.3. Before
+attestation fees the reason was reputational; with them it is a salary. A board that can block its own
+removal cannot be removed, and §5.5's entire answer to capture is that the electorate can act on what
+the published reasons show them. So there has to be a path by which they act.
+
+`Kind.Registry` is that path. Its calls target the agent registry and nothing else, and a passed vote is
+the whole authorisation: no round opens, no verdict is sought, nobody is scored or slashed in either
+direction. Six choices inside it:
+
+**Restricted by target, not by selector.** `Saine`'s only governance-gated entry points are `assignSlot`
+and `setAttestationFee`, and the contract is immutable, so testing the target is exactly equivalent to
+listing those two selectors and cannot drift from the contract as a selector list could. Everything else
+on that address is already permissionless, so routing it through the timelock grants a caller nothing.
+
+**The registry track is the only route to the registry.** Parameter proposals may no longer target
+`Saine` at all. Two routes for the same call, differing only in whether the board can veto it, would
+make the veto decorative: a proposer would always take the route without it. This mirrors the
+funding/parameter split in §6.2 and is enforced the same way, by shape.
+
+**Unscored, like halt.** Scoring means scoring against a verdict (§7.1), and this track produces none.
+It reads ballot weight against a mask snapshotted at its own opening, so it takes no scored slot, queues
+behind nothing, and cannot jam the season's serial scoring by never settling. A voter who sits one out
+takes no non-vote penalty, because there is nothing to have been wrong about.
+
+**Queued from `Succeeded`, not `Approved`.** `Approved` means the board approved. On this track the board
+is not asked, so claiming that state would be a lie told in a public enum that a frontend will render.
+
+**The same quorum and the same simple majority as everywhere else.** The temptation is to demand a
+supermajority for the one track with no second check. It is the wrong instinct: this is the route by
+which a captured board gets replaced, and making it harder than an ordinary proposal hands the board
+exactly the protection the track exists to remove. It does keep every other guard, so it is
+Guardian-proposed, bonded, quorum-bound and timelocked.
+
+**It controls the board, not the treasury.** The rate can be set here, but no CODE reaches the fee pool
+without `treasury.spend`, which is a parameter proposal and still adjudicated. The electorate gains the
+power to hire, fire and price the board; the board keeps its say over money. That split is the reason
+this exemption is narrow enough to be safe.
+
+`test_registry_survivesABoardThatHasGoneCompletelyDark` is the test that matters: an origination lapses
+because not one commitment arrives, and a registry proposal then replaces the seat regardless.
+
+**This is an addition to §6 as written, which describes three tracks.** The whitepaper needs a fourth.
+
 ---
 
 ## 3. Ruled on after review
@@ -514,6 +626,14 @@ protocol can be rewired outside governance once the deployment finishes.
 5. **Bridge-cost basis:** LayerZero `quote()` at batch time. **Rollover bounty:** a maintenance-
    funded pool holding no other rights.
 
+6. **The board no longer adjudicates proposals about the board.** Ruled by Dom on 18 August: a
+   proposal whose only calls target the agent registry passes on the Many's vote alone. Built as a
+   fourth track rather than as a conditional inside the parameter track, so the different lifecycle
+   is visible in the proposal's own kind rather than inferred from its calldata. Reasoning and the
+   six choices inside it are in §2.30. The narrow scope is what makes it safe: the electorate gains
+   the power to seat, unseat and price the board, and the board keeps its say over every proposal
+   that moves money.
+
 ---
 
 ## 4. Divergences from the whitepaper that need a document update
@@ -522,6 +642,10 @@ protocol can be rewired outside governance once the deployment finishes.
 2. §16.3 lists 19 invariants; an earlier note of mine said 20. No code impact.
 3. §2.3 and §9 describe burns as sends to "the dead address"; the implementation performs a true
    burn that reduces `totalSupply`. See §2.5.
+4. §6 describes three proposal tracks; there are now four. The registry track carries proposals whose
+   only calls target the agent registry, and it is not adjudicated. See §2.30.
+5. §5.8 promises operators are paid per attestation but sets no rate. §15 now needs a row: zero at
+   genesis, governance-set, ceiling $100 per attestation. See §2.28.
 
 ---
 

@@ -61,6 +61,29 @@ Requiring all twenty secrets would have made the harness unusable by exactly the
 to, so the config is scoped to what a process actually runs. Three or more seats is refused, since §5.2's
 cap makes it unseatable; only the phase-one team holds all ten.
 
+### Getting paid (§5.8)
+
+Phase two pays operators per attestation, from the treasury, at a USD rate governance sets. Two variables
+turn collection on:
+
+```
+SAINE_OPERATOR_ADDRESS=0x...   # the address governance assigned to your seat
+SAINE_CODE_ADDRESS=0x...       # with the other three keeper addresses
+```
+
+The fee accrues in USD when a round settles, credited to whoever held the seat at commit time, and is
+claimable in CODE at the oracle price whenever the pool can cover it. `saine keep` claims it on each pass.
+The relayer key signs that transaction and never receives the money: the contract pays the named operator
+whoever calls, so the operator address can be a multisig or a cold key that never sends anything.
+
+Nothing accrues in phase one, where the rate is zero and the team runs every seat, and nothing is lost if
+the pool is unfunded: the debt stands in USD until governance tops it up. `feeShortfallCode()` is what
+governance reads to see the liability it has accumulated.
+
+The keeper's four extra addresses (`SAINE_DCODE_ADDRESS`, `SAINE_ORACLE_ADDRESS`, `SAINE_RECEIVER_ADDRESS`,
+`SAINE_CODE_ADDRESS`) are all-or-nothing. A keeper configured with three of them would run four of its
+steps and throw on the fifth, which reads as a broken keeper rather than an unconfigured one.
+
 A single-seat operator cannot verify the board's provider diversity from their own configuration, because
 the other nine seats are somebody else's. `checkOperatedSlots` checks what they can check locally, and the
 registry's `distinctProviders()` is where the board-wide property is read.

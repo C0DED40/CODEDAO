@@ -35,7 +35,7 @@ interface ITreasuryCeiling {
 ///        needs it to score the electorate in both directions, but that round is advisory: it cannot
 ///        change the state, cannot queue anything, and cannot penalise the sponsor (invariants 7, 9).
 ///
-///      Three tracks, three different relationships to the scoring machinery:
+///      Four tracks, four different relationships to the scoring machinery:
 ///
 ///      **Origination** (funding and parameter proposals) is serialised. Each occupies one scored
 ///      slot in the staking vault from the moment its vote opens until its verdict lands, which is
@@ -45,6 +45,20 @@ interface ITreasuryCeiling {
 ///      snapshotted at its own opening, so it never touches a scored slot and never queues behind
 ///      one. §6.5: "A protective mechanism must never be chilled by the fear of being wrong about
 ///      needing it."
+///
+///      **Registry** is the one track the board cannot veto. Its calls target the agent registry and
+///      nothing else, and a passed vote is the whole authorisation: no agent round opens, so no
+///      verdict is required and nobody is scored or slashed. The reason is circularity. Every other
+///      binding proposal passes through SAINE, including one that reassigns a slot, so a board with a
+///      reason to stay seated could reject its own replacement and, in rejecting it, slash the
+///      Guardian who proposed it and every voter who agreed. Attestation fees make that reason
+///      concrete: the seats now earn money. A board that can block its own removal cannot be removed,
+///      and §5.5's answer to capture is that the electorate can act on what the published reasons
+///      show them. This is the path by which they act.
+///
+///      What the electorate gains here is control of the board, not control of the treasury. The rate
+///      can be set on this track, but no CODE reaches the fee pool without `treasury.spend`, which is
+///      a parameter proposal and still adjudicated. Money still runs through the board.
 ///
 ///      **Advisory** is what a defeated origination proposal gets. It reuses the same slot the
 ///      proposal already held, so a defeat costs the queue exactly what a success costs it: one
@@ -101,7 +115,10 @@ contract Governor is ISaineConsumer {
     enum Kind {
         Funding,
         Parameter,
-        Halt
+        Halt,
+        /// @dev Appended rather than inserted: the ordinals are in emitted events and in every
+        ///      interface reading them, so reordering would silently reinterpret history.
+        Registry
     }
 
     enum State {
@@ -128,8 +145,9 @@ contract Governor is ISaineConsumer {
         /// @dev Scored slot in the staking vault. Origination track only.
         uint8 slot;
         bool hasSlot;
-        /// @dev Verdict mask snapshotted at opening. Halt track only.
-        uint128 haltMask;
+        /// @dev Verdict mask snapshotted at opening. The unscored tracks, halt and registry, read
+        ///      ballot weight against this instead of taking a scored slot.
+        uint128 unscoredMask;
         /// @dev Quorum denominator for this proposal, fixed at opening.
         uint256 denominator;
         uint256 yesWeight;
@@ -164,7 +182,9 @@ contract Governor is ISaineConsumer {
     uint256 public proposalCount;
     mapping(uint256 id => Proposal) internal _proposals;
     mapping(uint256 id => Actions) internal _actions;
-    mapping(uint256 id => mapping(address voter => bool)) public hasVotedOnHalt;
+    /// @dev Per-proposal ballot record for the unscored tracks, which cannot use the season bitmaps
+    ///      because those exist to derive non-vote penalties and neither track penalises anyone.
+    mapping(uint256 id => mapping(address voter => bool)) public hasVotedUnscored;
 
     /// @notice Proposals opened by each Guardian this season (§15's cap of two).
     mapping(uint32 season => mapping(address guardian => uint8)) public proposalsBy;
@@ -235,6 +255,8 @@ contract Governor is ISaineConsumer {
     error FundingNeedsOneAction();
     error NotAFundingAction();
     error ParameterCannotFund();
+    error RegistryTrackIsRegistryOnly();
+    error UseTheRegistryTrack();
     error ManifestMismatch();
     error AllocationOverCeiling();
     error UnknownTargetNotFlagged();
@@ -325,9 +347,9 @@ contract Governor is ISaineConsumer {
         ++proposalsBy[season][msg.sender];
         if (input.kind == Kind.Funding) ++originationsOpened[season];
 
-        // The origination track takes a scored slot; the halt track takes a mask snapshot.
-        if (input.kind == Kind.Halt) {
-            p.haltMask = dcode.currentSettledMask(season);
+        // The origination track takes a scored slot; the unscored tracks take a mask snapshot.
+        if (input.kind == Kind.Halt || input.kind == Kind.Registry) {
+            p.unscoredMask = dcode.currentSettledMask(season);
             p.denominator = dcode.manyEffectivePower(season);
         } else {
             if (liveOrigination != 0) revert OriginationBusy();
@@ -385,11 +407,27 @@ contract Governor is ISaineConsumer {
             return address(0);
         }
 
+        if (input.kind == Kind.Registry) {
+            // Restricted by target rather than by selector. The registry's only governance-gated
+            // entry points are `assignSlot` and `setAttestationFee`, and it is immutable, so the
+            // target test is exactly equivalent to listing them and cannot drift from the contract.
+            // Everything else on that address is permissionless already, so routing it through the
+            // timelock grants nothing a caller did not have.
+            for (uint256 i; i < input.targets.length; ++i) {
+                if (input.targets[i] != address(saine)) revert RegistryTrackIsRegistryOnly();
+            }
+            return address(0);
+        }
+
         for (uint256 i; i < input.targets.length; ++i) {
             if (input.targets[i] == address(escrow)) {
                 bytes4 sel = bytes4(input.calldatas[i]);
                 if (sel == registerSel || sel == haltSel) revert ParameterCannotFund();
             }
+            // One call surface, one track. Allowing the registry to be reached from the parameter
+            // track as well would leave two routes for the same call, differing only in whether the
+            // board can veto it, and a proposer would always take the route without the veto.
+            if (input.targets[i] == address(saine)) revert UseTheRegistryTrack();
         }
         return address(0);
     }
@@ -423,9 +461,12 @@ contract Governor is ISaineConsumer {
     ///      ever applied, and its vintage weights frozen against a verdict that had not arrived.
     function _validateSchedule(uint32 season, Kind kind) internal view {
         uint64 seasonEnd = dcode.seasonEnd(season);
-        uint64 needed = uint64(block.timestamp) + VOTING_PERIOD + ADJUDICATION_WINDOW;
-        if (needed > seasonEnd) revert WontFinishThisSeason();
-        kind; // applies to every track: a halt that cannot adjudicate in-season is no protection
+        // A halt is held to the same standard as an origination deliberately: one that cannot
+        // adjudicate in-season is no protection. The registry track needs only its vote, because it
+        // has no adjudication to fit in, and holding it to a window it never uses would close the one
+        // route to replacing a board for two extra days at every season boundary.
+        uint64 window = kind == Kind.Registry ? VOTING_PERIOD : VOTING_PERIOD + ADJUDICATION_WINDOW;
+        if (uint64(block.timestamp) + window > seasonEnd) revert WontFinishThisSeason();
     }
 
     /// @dev §6.2: the bond is "posted in liquid CODE, separate from and additional to the Guardian's
@@ -453,11 +494,11 @@ contract Governor is ISaineConsumer {
         if (block.timestamp > p.voteEnd) revert VotingClosed();
 
         uint256 weight;
-        if (p.kind == Kind.Halt) {
-            if (hasVotedOnHalt[id][msg.sender]) revert AlreadyVoted();
-            weight = dcode.ballotWeightForMask(msg.sender, p.season, p.haltMask);
+        if (p.kind == Kind.Halt || p.kind == Kind.Registry) {
+            if (hasVotedUnscored[id][msg.sender]) revert AlreadyVoted();
+            weight = dcode.ballotWeightForMask(msg.sender, p.season, p.unscoredMask);
             if (weight == 0) revert NoWeight();
-            hasVotedOnHalt[id][msg.sender] = true;
+            hasVotedUnscored[id][msg.sender] = true;
         } else {
             weight = dcode.ballotWeight(msg.sender, p.season);
             if (weight == 0) revert NoWeight();
@@ -485,6 +526,15 @@ contract Governor is ISaineConsumer {
         p.state = passed ? State.Succeeded : State.Defeated;
         p.passedVote = passed;
         emit VoteClosed(id, p.state, p.yesWeight, p.noWeight, p.denominator);
+
+        if (p.kind == Kind.Registry) {
+            // No agent round, in either direction. A passed vote is the whole authorisation and sits
+            // in `Succeeded` until someone queues it; `Approved` is reserved for what the board
+            // approved, and on this track the board is not asked. Nobody is scored or slashed either
+            // way, so a defeat simply ends.
+            _returnBond(id, p);
+            return;
+        }
 
         if (p.kind == Kind.Halt) {
             if (passed) {
@@ -596,7 +646,11 @@ contract Governor is ISaineConsumer {
     /// @notice Queue an approved proposal into the timelock.
     function queue(uint256 id) external returns (bytes32 operationId) {
         Proposal storage p = _proposals[id];
-        if (p.state != State.Approved) revert WrongState();
+        // Every track but one must show an agent approval. The registry track has no adjudication, so
+        // the passed vote it already holds is the authorisation, and requiring `Approved` there would
+        // mean requiring a verdict that is never sought.
+        State required = p.kind == Kind.Registry ? State.Succeeded : State.Approved;
+        if (p.state != required) revert WrongState();
         Actions storage a = _actions[id];
 
         p.state = State.Queued;

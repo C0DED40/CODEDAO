@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run",
+    "test": "tsc -p tsconfig.json --noEmit && vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/src/main.js watch",
     "check": "node dist/src/main.js check",

@@ -19,13 +19,18 @@
  *     seat is attesting against collateral that no longer covers it.
  *   - **Oracle maintenance**. Now self-healing at the point of use, but a poke keeps the average fresh for
  *     readers that cannot poke, such as the per-deal ceiling a proposer reads before submitting.
+ *   - **Fee pool sync** (§5.8). CODE sent to the registry outside a proposal sits uncredited, so an
+ *     operator reads a pool that cannot pay them while the tokens are already there.
+ *   - **Fee claims** (§5.8). Uncollected earnings are the one item here with a named beneficiary, which is
+ *     precisely why the harness should collect them: an operator whose fee never arrives is an operator
+ *     who eventually stops attesting, and the board is eight reveals from freezing every outcome.
  *
  * The keeper does not decide anything. Every call here is one the contracts already permit from any
  * address, and the harness runs them because it is the process most likely to be awake.
  */
 
 import type { Abi, Address, Hex, PublicClient, WalletClient } from 'viem'
-import { SAINE_ABI, DCODE_ABI, GOVERNOR_ABI, SATELLITE_ABI, RECEIVER_ABI, ORACLE_ABI } from './chain/abi.js'
+import { SAINE_ABI, DCODE_ABI, GOVERNOR_ABI, SATELLITE_ABI, RECEIVER_ABI, ORACLE_ABI, CODE_ABI } from './chain/abi.js'
 
 export interface KeeperTargets {
   readonly saine: Address
@@ -33,6 +38,12 @@ export interface KeeperTargets {
   readonly governor: Address
   readonly oracle: Address
   readonly receiver: Address
+  readonly code: Address
+  /**
+   * The operator this harness collects for (§5.8). Absent in phase one, where the fee is zero and the
+   * team runs every seat, and absent for anyone relaying on somebody else's behalf.
+   */
+  readonly operator?: Address
   /** Satellites are per investee chain, so each needs its own client. */
   readonly satellites?: readonly { readonly chainId: number; readonly address: Address }[]
 }
@@ -61,7 +72,15 @@ export async function runKeeperPass(deps: KeeperDeps): Promise<KeeperAction[]> {
   const actions: KeeperAction[] = []
   const log = deps.log ?? (() => {})
 
-  for (const step of [settleDueRounds, rolloverIfDue, revalueBonds, pokeOracle, executeBuyback]) {
+  for (const step of [
+    settleDueRounds,
+    rolloverIfDue,
+    revalueBonds,
+    pokeOracle,
+    executeBuyback,
+    syncFeePool,
+    claimAttestationFees,
+  ]) {
     try {
       actions.push(...(await step(deps)))
     } catch (err) {
@@ -174,6 +193,95 @@ export async function pokeOracle(deps: KeeperDeps): Promise<KeeperAction[]> {
     account: deps.wallet.account!,
   })
   return [{ name: 'pokeOracle', reason: 'maintain the time-weighted average', txHash }]
+}
+
+/**
+ * §5.8: credit CODE that reached the registry without a `syncFeePool` call behind it.
+ *
+ * The surplus is computed here rather than left to the contract's revert so a pass that has nothing to do
+ * costs a read instead of a failed transaction. The contract does the same arithmetic on the way in, so a
+ * race with a concurrent claim loses the transaction, not the funds.
+ */
+export async function syncFeePool(deps: KeeperDeps): Promise<KeeperAction[]> {
+  const [held, bonded, pool] = (await Promise.all([
+    deps.reader.readContract({
+      address: deps.targets.code,
+      abi: CODE_ABI as Abi,
+      functionName: 'balanceOf',
+      args: [deps.targets.saine],
+    }),
+    deps.reader.readContract({
+      address: deps.targets.saine,
+      abi: SAINE_ABI as Abi,
+      functionName: 'totalBondedCode',
+    }),
+    deps.reader.readContract({
+      address: deps.targets.saine,
+      abi: SAINE_ABI as Abi,
+      functionName: 'feePool',
+    }),
+  ])) as [bigint, bigint, bigint]
+
+  const accounted = bonded + pool
+  if (held <= accounted) {
+    return [{ name: 'syncFeePool', reason: 'no unaccounted CODE here', skipped: 'nothing to sync' }]
+  }
+
+  const txHash = await deps.wallet.writeContract({
+    address: deps.targets.saine,
+    abi: SAINE_ABI as Abi,
+    functionName: 'syncFeePool',
+    chain: null,
+    account: deps.wallet.account!,
+  })
+  return [{ name: 'syncFeePool', reason: `crediting ${held - accounted} unaccounted CODE`, txHash }]
+}
+
+/**
+ * §5.8: collect what this operator has earned.
+ *
+ * The payment goes to the operator address whatever this wallet is, so the relayer key running the keeper
+ * never touches the money. Both guards are reads rather than a hopeful transaction: `owedUsd` at zero is
+ * the ordinary phase one case, and an empty pool is a governance failure the operator can do nothing about
+ * from here except leave the debt standing, which is what the contract does anyway.
+ */
+export async function claimAttestationFees(deps: KeeperDeps): Promise<KeeperAction[]> {
+  const operator = deps.targets.operator
+  if (operator === undefined) {
+    return [{ name: 'claimAttestationFees', reason: 'no operator configured', skipped: 'not collecting' }]
+  }
+
+  const [owed, pool] = (await Promise.all([
+    deps.reader.readContract({
+      address: deps.targets.saine,
+      abi: SAINE_ABI as Abi,
+      functionName: 'owedUsd',
+      args: [operator],
+    }),
+    deps.reader.readContract({
+      address: deps.targets.saine,
+      abi: SAINE_ABI as Abi,
+      functionName: 'feePool',
+    }),
+  ])) as [bigint, bigint]
+
+  if (owed === 0n) {
+    return [{ name: 'claimAttestationFees', reason: 'nothing accrued', skipped: 'nothing owed' }]
+  }
+  if (pool === 0n) {
+    // Left standing rather than claimed: the debt is denominated in USD, so waiting costs nothing.
+    return [{ name: 'claimAttestationFees', reason: `${owed} USD owed and the pool is empty`, skipped: 'pool empty' }]
+  }
+
+  const txHash = await deps.wallet.writeContract({
+    address: deps.targets.saine,
+    abi: SAINE_ABI as Abi,
+    functionName: 'claimAttestationFees',
+    args: [operator],
+    chain: null,
+    account: deps.wallet.account!,
+  })
+  return [{ name: 'claimAttestationFees', reason: `claiming ${owed} USD for ${operator}`, txHash }]
 }
 
 /** §9 step 5. Unbountied by design, so the keeper is the process most likely to do it. */

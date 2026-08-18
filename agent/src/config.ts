@@ -46,6 +46,27 @@ export interface HarnessConfig {
   readonly slotKeys: ReadonlyMap<number, SlotKeys>
   readonly ipfsApiUrl?: string
   readonly pollIntervalMs: number
+  /**
+   * Addresses the keeper needs and the adjudication path does not.
+   *
+   * Optional as a set, because a process that only judges rounds should not be made to know where the
+   * receiver is. Present only when all four are configured: a keeper missing one of them would run four
+   * of its steps and throw on the fifth, which reads as a broken keeper rather than an unconfigured one.
+   */
+  readonly keeper?: KeeperAddresses
+  /**
+   * The operator address this harness collects attestation fees for (§5.8). Unset in phase one, where
+   * the fee is zero. Never a key this process holds: the contract pays the named operator whoever calls,
+   * so the relayer signs the transaction and the money goes elsewhere.
+   */
+  readonly operatorAddress?: Address
+}
+
+export interface KeeperAddresses {
+  readonly dcode: Address
+  readonly oracle: Address
+  readonly receiver: Address
+  readonly code: Address
 }
 
 type Env = Readonly<Record<string, string | undefined>>
@@ -58,6 +79,13 @@ function need(env: Env, key: string): string {
 
 function needAddress(env: Env, key: string): Address {
   const v = need(env, key)
+  if (!isAddress(v)) throw new ConfigError(`${key} is not a valid address: ${v}`)
+  return v
+}
+
+function optionalAddress(env: Env, key: string): Address | undefined {
+  const v = env[key]
+  if (v === undefined || v.length === 0) return undefined
   if (!isAddress(v)) throw new ConfigError(`${key} is not a valid address: ${v}`)
   return v
 }
@@ -95,6 +123,24 @@ export function loadConfig(env: Env = process.env): HarnessConfig {
 
   assertDistinct([...slotKeys.values()])
 
+  const keeperKeys = ['SAINE_DCODE_ADDRESS', 'SAINE_ORACLE_ADDRESS', 'SAINE_RECEIVER_ADDRESS', 'SAINE_CODE_ADDRESS']
+  const keeperSet = keeperKeys.filter((k) => (env[k] ?? '').length > 0)
+  if (keeperSet.length !== 0 && keeperSet.length !== keeperKeys.length) {
+    const missing = keeperKeys.filter((k) => !keeperSet.includes(k))
+    throw new ConfigError(`keeper addresses are all or nothing; missing ${missing.join(', ')}`)
+  }
+  const keeper: KeeperAddresses | undefined =
+    keeperSet.length === keeperKeys.length
+      ? {
+          dcode: needAddress(env, 'SAINE_DCODE_ADDRESS'),
+          oracle: needAddress(env, 'SAINE_ORACLE_ADDRESS'),
+          receiver: needAddress(env, 'SAINE_RECEIVER_ADDRESS'),
+          code: needAddress(env, 'SAINE_CODE_ADDRESS'),
+        }
+      : undefined
+
+  const operatorAddress = optionalAddress(env, 'SAINE_OPERATOR_ADDRESS')
+
   const ipfs = env.SAINE_IPFS_API_URL
   return {
     rpcUrl: need(env, 'SAINE_RPC_URL'),
@@ -106,6 +152,8 @@ export function loadConfig(env: Env = process.env): HarnessConfig {
     slotKeys,
     ...(ipfs !== undefined && ipfs.length > 0 ? { ipfsApiUrl: ipfs } : {}),
     pollIntervalMs: Number(env.SAINE_POLL_INTERVAL_MS ?? 60_000),
+    ...(keeper !== undefined ? { keeper } : {}),
+    ...(operatorAddress !== undefined ? { operatorAddress } : {}),
   }
 }
 

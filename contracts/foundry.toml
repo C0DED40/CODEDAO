@@ -11,7 +11,8 @@ optimizer_runs = 200
 bytecode_hash = "none"
 cbor_metadata = false
 # CODE DAO uses timestamps everywhere (§12). block.number must never appear.
-# See test/invariant/NoBlockNumber.t.sol for the enforcing check.
+# The enforcing check is ./check-no-block-number.sh, run in CI: the property is about source text
+# rather than runtime behaviour, so a Solidity test cannot express it.
 
 [profile.default.fuzz]
 runs = 512

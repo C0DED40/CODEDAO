@@ -71,15 +71,22 @@ async function main(): Promise<void> {
       account: privateKeyToAccount(cfg.relayerKey),
       transport: http(cfg.rpcUrl),
     })
+    if (cfg.keeper === undefined) {
+      log('keeper needs SAINE_DCODE_ADDRESS, SAINE_ORACLE_ADDRESS, SAINE_RECEIVER_ADDRESS and SAINE_CODE_ADDRESS')
+      process.exitCode = 2
+      return
+    }
     const actions = await runKeeperPass({
       reader: publicClient,
       wallet,
       targets: {
         saine: cfg.addresses.saine,
-        dcode: process.env.SAINE_DCODE_ADDRESS as `0x${string}`,
         governor: cfg.addresses.governor,
-        oracle: process.env.SAINE_ORACLE_ADDRESS as `0x${string}`,
-        receiver: process.env.SAINE_RECEIVER_ADDRESS as `0x${string}`,
+        dcode: cfg.keeper.dcode,
+        oracle: cfg.keeper.oracle,
+        receiver: cfg.keeper.receiver,
+        code: cfg.keeper.code,
+        ...(cfg.operatorAddress !== undefined ? { operator: cfg.operatorAddress } : {}),
       },
       log,
     })

@@ -108,3 +108,36 @@ describe('loadConfig', () => {
     expect(() => loadConfig(e)).toThrow(/keep them separate/)
   })
 })
+
+describe('keeper and fee collection (§5.8)', () => {
+  const B = '0x2222222222222222222222222222222222222222'
+  const KEEPER = {
+    SAINE_DCODE_ADDRESS: B,
+    SAINE_ORACLE_ADDRESS: B,
+    SAINE_RECEIVER_ADDRESS: B,
+    SAINE_CODE_ADDRESS: B,
+  }
+
+  it('omits the keeper block entirely when none of it is configured', () => {
+    // A process that only judges rounds should not be made to know where the receiver is.
+    const c = loadConfig(env())
+    expect(c.keeper).toBeUndefined()
+    expect(c.operatorAddress).toBeUndefined()
+  })
+
+  it('loads the keeper addresses when all four are present', () => {
+    const c = loadConfig(env(KEEPER))
+    expect(c.keeper?.code).toBe(B)
+    expect(c.keeper?.receiver).toBe(B)
+  })
+
+  it('refuses a partial keeper configuration rather than throwing on the fifth step', () => {
+    expect(() => loadConfig(env({ ...KEEPER, SAINE_CODE_ADDRESS: undefined }))).toThrow(/all or nothing/)
+  })
+
+  it('takes an operator address for fee collection and validates it', () => {
+    const c = loadConfig(env({ ...KEEPER, SAINE_OPERATOR_ADDRESS: B }))
+    expect(c.operatorAddress).toBe(B)
+    expect(() => loadConfig(env({ SAINE_OPERATOR_ADDRESS: 'not-an-address' }))).toThrow(ConfigError)
+  })
+})

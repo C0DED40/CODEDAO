@@ -11,7 +11,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-const CONTRACTS = ['Saine', 'Governor', 'Escrow', 'Targets', 'DCode', 'Treasury', 'Receiver', 'Satellite', 'VintageVault', 'Oracle']
+const CONTRACTS = ['Code', 'Saine', 'Governor', 'Escrow', 'Targets', 'DCode', 'Treasury', 'Receiver', 'Satellite', 'VintageVault', 'Oracle']
 const OUT_DIR = new URL('../../contracts/out/', import.meta.url).pathname
 const DEST = new URL('../src/chain/abi.ts', import.meta.url).pathname
 

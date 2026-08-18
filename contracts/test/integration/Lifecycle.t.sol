@@ -779,4 +779,244 @@ contract LifecycleTest is Test {
         vm.expectRevert(DCode.ProtocolAddress.selector);
         dcode.stake(1_000e18);
     }
+
+    // =================================================================
+    // Attestation fees (§5.8)
+    // =================================================================
+
+    /// @dev The point of this test is that the fee is *fundable*. `Treasury.spend` pushes tokens and
+    ///      cannot approve a spender, so a mechanism that only accepted `transferFrom` would need the
+    ///      DAO's CODE to pass through some intermediary account on its way to the board. Here the
+    ///      proposal pays the registry directly and a permissionless sync credits it, so the CODE never
+    ///      leaves protocol contracts and no approval exists anywhere.
+    function test_fees_governanceFundsThePoolThroughTheTreasury() public {
+        uint256 amount = 100_000e18;
+        uint256 treasuryBefore = code.balanceOf(address(treasury));
+
+        Governor.ProposalInput memory input;
+        input.kind = Governor.Kind.Parameter;
+        input.targets = new address[](1);
+        input.values = new uint256[](1);
+        input.calldatas = new bytes[](1);
+        input.targets[0] = address(treasury);
+        input.calldatas[0] = abi.encodeCall(Treasury.spend, (IERC20(address(code)), address(saine), amount));
+        input.flagUnknownTargets = true;
+        input.descriptionUri = "ipfs://fund-the-board";
+
+        // Spending the treasury is adjudicated like any other parameter change. This is the property
+        // the registry track deliberately does not touch: the rate is the electorate's to set, but no
+        // CODE reaches the pool without the board.
+        uint256 id = _propose(whales[0], input);
+        _voteYes(id, 2);
+        vm.warp(block.timestamp + 5 days + 1);
+        governor.closeVote(id);
+        _adjudicate(governor.getProposal(id).saineRound, 10, 6);
+        governor.queue(id);
+        vm.warp(block.timestamp + 24 hours + 1);
+        governor.execute(id);
+
+        assertEq(code.balanceOf(address(treasury)), treasuryBefore - amount);
+        assertEq(saine.feePool(), 0, "delivered but not yet credited");
+
+        vm.prank(makeAddr("any keeper"));
+        assertEq(saine.syncFeePool(), amount);
+        assertEq(saine.feePool(), amount);
+        assertEq(code.balanceOf(address(saine)), saine.totalBondedCode() + saine.feePool(), "bonds and the pool add up");
+    }
+
+    function test_fees_payNothingUntilPhaseTwoEvenOnceFunded() public {
+        // §5.8 scopes payment to phase two, and the lifecycle sits in season 1 with nothing deployed.
+        assertFalse(saine.phaseTwo());
+        vm.prank(address(timelock));
+        saine.setAttestationFee(5e18);
+
+        uint256 id = _propose(whales[0], _fundingInput(investee, 20 ether, keccak256("m1")));
+        _voteYes(id, 2);
+        vm.warp(block.timestamp + 5 days + 1);
+        governor.closeVote(id);
+        uint256 round = governor.getProposal(id).saineRound;
+        assertEq(saine.getRound(round).feeUsd, 0, "the rate is frozen at open, and at open it is phase one");
+
+        _adjudicate(round, 10, 6);
+        assertEq(saine.totalOwedUsd(), 0);
+        assertEq(saine.owedUsd(teamOperator), 0);
+    }
+
+    // =================================================================
+    // The registry track (§6, decisions log §2.30)
+    // =================================================================
+
+    function _registryInput(bytes memory call) internal view returns (Governor.ProposalInput memory input) {
+        input.kind = Governor.Kind.Registry;
+        input.targets = new address[](1);
+        input.values = new uint256[](1);
+        input.calldatas = new bytes[](1);
+        input.targets[0] = address(saine);
+        input.calldatas[0] = call;
+        input.flagUnknownTargets = true;
+        input.descriptionUri = "ipfs://registry";
+    }
+
+    function _reassignSlotZero(address to) internal returns (Governor.ProposalInput memory) {
+        return _registryInput(abi.encodeCall(Saine.assignSlot, (0, to, makeAddr("newKey"), bytes32("anthropic"))));
+    }
+
+    function test_registry_reassignsASeatOnTheManysVoteAlone() public {
+        address successor = makeAddr("independent operator");
+        uint256 id = _propose(whales[0], _reassignSlotZero(successor));
+
+        _voteYes(id, 2);
+        vm.warp(block.timestamp + 5 days + 1);
+        governor.closeVote(id);
+
+        Governor.Proposal memory p = governor.getProposal(id);
+        assertEq(uint8(p.state), uint8(Governor.State.Succeeded));
+        assertEq(p.saineRound, 0, "no agent round is opened, in either direction");
+        assertFalse(p.hasSlot, "and no scored slot is taken");
+
+        governor.queue(id);
+        vm.warp(block.timestamp + 24 hours + 1);
+        governor.execute(id);
+
+        assertEq(saine.getSlot(0).operator, successor, "the electorate replaced a seat without the board");
+        assertEq(uint8(governor.getProposal(id).state), uint8(Governor.State.Executed));
+    }
+
+    function test_registry_survivesABoardThatHasGoneCompletelyDark() public {
+        // The case the track exists for. Every other binding proposal needs six of ten agents to
+        // approve it, so a board with a reason to stay seated could reject its own replacement, and
+        // rejecting it would slash the Guardian who proposed it and everyone who voted yes.
+        uint256 origination = _propose(whales[0], _fundingInput(investee, 20 ether, keccak256("m1")));
+        _voteYes(origination, 2);
+        vm.warp(block.timestamp + 5 days + 1);
+        governor.closeVote(origination);
+        uint256 round = governor.getProposal(origination).saineRound;
+
+        // Not one commitment arrives.
+        vm.warp(block.timestamp + 48 hours + 1);
+        saine.settleRound(round);
+        assertEq(uint8(governor.getProposal(origination).state), uint8(Governor.State.Lapsed));
+
+        address successor = makeAddr("replacement");
+        uint256 id = _propose(whales[1], _reassignSlotZero(successor));
+        _voteYes(id, 2);
+        vm.warp(block.timestamp + 5 days + 1);
+        governor.closeVote(id);
+        governor.queue(id);
+        vm.warp(block.timestamp + 24 hours + 1);
+        governor.execute(id);
+
+        assertEq(saine.getSlot(0).operator, successor, "a silent board cannot block its own replacement");
+    }
+
+    function test_registry_runsInParallelWithAnOpenOrigination() public {
+        uint256 origination = _propose(whales[0], _fundingInput(investee, 20 ether, keccak256("m1")));
+        assertEq(governor.liveOrigination(), origination);
+
+        uint256 id = _propose(whales[1], _reassignSlotZero(makeAddr("op")));
+        assertEq(uint8(governor.getProposal(id).state), uint8(Governor.State.Active));
+        assertEq(governor.liveOrigination(), origination, "and does not disturb the queue");
+    }
+
+    function test_registry_scoresNobody() public {
+        // Scoring is scoring against a verdict (§7.1), and this track produces none. Penalising a
+        // voter for being on the wrong side of nothing is not a thing the contract can do honestly.
+        uint256 id = _propose(whales[0], _reassignSlotZero(makeAddr("op")));
+        uint256 weightBefore = dcode.ballotWeight(many[3], 1);
+
+        vm.prank(many[0]);
+        governor.castVote(id, true);
+        vm.prank(many[1]);
+        governor.castVote(id, true);
+        vm.prank(many[2]);
+        governor.castVote(id, false);
+
+        vm.warp(block.timestamp + 5 days + 1);
+        governor.closeVote(id);
+
+        assertEq(dcode.ballotWeight(many[2], 1), weightBefore, "the wrong-side voter is untouched");
+        assertEq(dcode.ballotWeight(many[3], 1), weightBefore, "and so is the absentee");
+        assertFalse(dcode.guardianExcluded(whales[0], 1), "and so is the sponsor");
+    }
+
+    function test_registry_defeatEndsItAndReturnsTheBond() public {
+        uint256 before = code.balanceOf(whales[0]);
+        uint256 id = _propose(whales[0], _reassignSlotZero(makeAddr("op")));
+
+        _voteNo(id, 3);
+        vm.warp(block.timestamp + 5 days + 1);
+        governor.closeVote(id);
+
+        assertEq(uint8(governor.getProposal(id).state), uint8(Governor.State.Defeated));
+        assertEq(governor.getProposal(id).saineRound, 0, "a defeat gets no advisory round either");
+        assertEq(code.balanceOf(whales[0]), before, "and the bond comes back in full");
+    }
+
+    function test_registry_cannotQueueWithoutPassingItsVote() public {
+        uint256 id = _propose(whales[0], _reassignSlotZero(makeAddr("op")));
+        vm.expectRevert(Governor.WrongState.selector);
+        governor.queue(id);
+
+        _voteNo(id, 3);
+        vm.warp(block.timestamp + 5 days + 1);
+        governor.closeVote(id);
+        vm.expectRevert(Governor.WrongState.selector);
+        governor.queue(id);
+    }
+
+    function test_registry_refusesAnyTargetThatIsNotTheRegistry() public {
+        Governor.ProposalInput memory input = _reassignSlotZero(makeAddr("op"));
+        input.targets = new address[](2);
+        input.values = new uint256[](2);
+        input.calldatas = new bytes[](2);
+        input.targets[0] = address(saine);
+        input.calldatas[0] = abi.encodeCall(Saine.assignSlot, (0, makeAddr("op"), makeAddr("k"), bytes32("anthropic")));
+        // A bundled treasury spend is exactly what this track must not carry: it would take the
+        // board out of the money path, and the board's judgement of spending is the point of §5.
+        input.targets[1] = address(treasury);
+        input.calldatas[1] = abi.encodeCall(Treasury.spend, (IERC20(address(code)), makeAddr("anyone"), 1e18));
+
+        vm.prank(whales[0]);
+        vm.expectRevert(Governor.RegistryTrackIsRegistryOnly.selector);
+        governor.propose(input);
+    }
+
+    function test_registry_isTheOnlyRouteToTheRegistry() public {
+        // Two routes for the same call, differing only in whether the board can veto it, means the
+        // veto is decorative: a proposer would always take the route without it.
+        Governor.ProposalInput memory input = _reassignSlotZero(makeAddr("op"));
+        input.kind = Governor.Kind.Parameter;
+        vm.prank(whales[0]);
+        vm.expectRevert(Governor.UseTheRegistryTrack.selector);
+        governor.propose(input);
+    }
+
+    function test_registry_setsTheAttestationFeeWithoutTheBoard() public {
+        // The rate is the electorate's lever. Funding the pool is not: that is `treasury.spend`, a
+        // parameter proposal, still adjudicated.
+        uint256 id = _propose(whales[0], _registryInput(abi.encodeCall(Saine.setAttestationFee, (7e18))));
+        _voteYes(id, 2);
+        vm.warp(block.timestamp + 5 days + 1);
+        governor.closeVote(id);
+        governor.queue(id);
+        vm.warp(block.timestamp + 24 hours + 1);
+        governor.execute(id);
+
+        assertEq(saine.attestationFeeUsd(), 7e18);
+    }
+
+    function test_registry_stillNeedsQuorumAndAGuardian() public {
+        Governor.ProposalInput memory input = _reassignSlotZero(makeAddr("op"));
+        vm.prank(many[0]);
+        vm.expectRevert(Governor.NotGuardian.selector);
+        governor.propose(input);
+
+        // And a vote nobody turns up to fails, exactly as on every other track. The threshold is not
+        // raised here: making the one route to replacing a board harder than the rest would defeat it.
+        uint256 id = _propose(whales[0], input);
+        vm.warp(block.timestamp + 5 days + 1);
+        governor.closeVote(id);
+        assertEq(uint8(governor.getProposal(id).state), uint8(Governor.State.Defeated), "quorum still binds");
+        assertGt(governor.quorumFor(id), 0, "and it is a real threshold, not zero");
+    }
 }
