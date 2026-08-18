@@ -1,0 +1,110 @@
+import { describe, expect, it } from 'vitest'
+import { ConfigError, loadConfig } from '../src/config.js'
+
+const A = '0x1111111111111111111111111111111111111111'
+
+function env(overrides: Record<string, string | undefined> = {}): Record<string, string | undefined> {
+  const base: Record<string, string | undefined> = {
+    SAINE_RPC_URL: 'http://localhost:8545',
+    SAINE_CHAIN_ID: '4663',
+    SAINE_REGISTRY_ADDRESS: A,
+    SAINE_GOVERNOR_ADDRESS: A,
+    SAINE_ESCROW_ADDRESS: A,
+    SAINE_TARGETS_ADDRESS: A,
+    SAINE_RELAYER_KEY: '0x' + 'ff'.repeat(32),
+  }
+  for (let i = 0; i < 10; i += 1) {
+    base[`SAINE_SLOT_${i}_SIGNING_KEY`] = '0x' + (i + 1).toString(16).padStart(2, '0').repeat(32)
+    base[`SAINE_SLOT_${i}_SALT_SECRET`] = '0x' + (i + 100).toString(16).padStart(2, '0').repeat(32)
+  }
+  return { ...base, ...overrides }
+}
+
+describe('phase one and phase two (§5.8)', () => {
+  it('defaults to all ten slots, which is phase one', () => {
+    // "At launch, the team operates all ten agent slots." That is the configuration that must not need
+    // extra ceremony to get right.
+    const c = loadConfig(env())
+    expect(c.operatedSlots).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    expect(c.slotKeys.size).toBe(10)
+  })
+
+  it('lets a phase-two operator run one seat with only their own credentials', () => {
+    // From the trigger, governance reassigns seats to independent operators. One of them holds slot 3 and
+    // has no key for anybody else's seat, so requiring all twenty secrets would make the harness unusable
+    // by exactly the people §5.8 hands it to.
+    const e = env({ SAINE_OPERATED_SLOTS: '3' })
+    for (let i = 0; i < 10; i += 1) {
+      if (i === 3) continue
+      e[`SAINE_SLOT_${i}_SIGNING_KEY`] = undefined
+      e[`SAINE_SLOT_${i}_SALT_SECRET`] = undefined
+    }
+    const c = loadConfig(e)
+    expect(c.operatedSlots).toEqual([3])
+    expect(c.slotKeys.size).toBe(1)
+    expect(c.slotKeys.get(3)).toBeDefined()
+  })
+
+  it('allows the two seats §5.2 permits an operator', () => {
+    const c = loadConfig(env({ SAINE_OPERATED_SLOTS: '7,2' }))
+    expect(c.operatedSlots).toEqual([2, 7])
+  })
+
+  it('refuses three seats, which the registry could not seat anyway', () => {
+    // §5.2: "no assignment may leave an operator holding more than two slots" from the trigger onward.
+    expect(() => loadConfig(env({ SAINE_OPERATED_SLOTS: '1,2,3' }))).toThrow(/caps an operator at 2/)
+  })
+
+  it('rejects a slot index outside the board', () => {
+    expect(() => loadConfig(env({ SAINE_OPERATED_SLOTS: '10' }))).toThrow(/slots are 0 to 9/)
+  })
+
+  it('rejects a duplicated slot', () => {
+    expect(() => loadConfig(env({ SAINE_OPERATED_SLOTS: '4,4' }))).toThrow(/twice/)
+  })
+})
+
+describe('loadConfig', () => {
+  it('loads a complete environment', () => {
+    const c = loadConfig(env())
+    expect(c.slotKeys.size).toBe(10)
+    expect(c.domain.verifyingContract).toBe(A)
+    expect(c.domain.chainId).toBe(4663)
+  })
+
+  it('throws on a missing variable rather than defaulting', () => {
+    // Discovering a missing key at the first commit window costs a lapsed round; discovering it midway
+    // through a board costs a slot that committed and cannot reveal.
+    expect(() => loadConfig(env({ SAINE_SLOT_7_SALT_SECRET: undefined }))).toThrow(ConfigError)
+    expect(() => loadConfig(env({ SAINE_RPC_URL: undefined }))).toThrow(ConfigError)
+  })
+
+  it('rejects a truncated private key', () => {
+    // A short key derives a different address silently, so the slot's signatures would be rejected and
+    // the failure would look like an agent that went quiet.
+    expect(() => loadConfig(env({ SAINE_SLOT_0_SIGNING_KEY: '0xdeadbeef' }))).toThrow(/32-byte/)
+  })
+
+  it('rejects a malformed address', () => {
+    expect(() => loadConfig(env({ SAINE_ESCROW_ADDRESS: 'not-an-address' }))).toThrow(/valid address/)
+  })
+
+  it('refuses two slots sharing a signing key', () => {
+    // The registry would show two seats and the threshold would count two votes, but one leak takes both.
+    const e = env()
+    e.SAINE_SLOT_1_SIGNING_KEY = e.SAINE_SLOT_0_SIGNING_KEY
+    expect(() => loadConfig(e)).toThrow(/share a signing key/)
+  })
+
+  it('refuses two slots sharing a salt secret', () => {
+    const e = env()
+    e.SAINE_SLOT_3_SALT_SECRET = e.SAINE_SLOT_2_SALT_SECRET
+    expect(() => loadConfig(e)).toThrow(/share a salt secret/)
+  })
+
+  it('refuses a signing key reused as a salt secret', () => {
+    const e = env()
+    e.SAINE_SLOT_5_SALT_SECRET = e.SAINE_SLOT_5_SIGNING_KEY
+    expect(() => loadConfig(e)).toThrow(/keep them separate/)
+  })
+})

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fence, fenceTag } from '../src/fence.js'
-import { checkBoard, BOARD } from '../src/board.js'
+import { checkBoard, checkOperatedSlots, BOARD } from '../src/board.js'
 
 const SALT = ('0x' + 'ab'.repeat(32)) as `0x${string}`
 
@@ -103,5 +103,32 @@ describe('board composition (§5.2)', () => {
     const c = checkBoard(dup)
     expect(c.ok).toBe(false)
     expect(c.problems.join(' ')).toContain('ten distinct models')
+  })
+})
+
+describe('what an operator can verify about the board (§5.8)', () => {
+  it('a phase-one operator holding all ten must satisfy §5.2 locally', () => {
+    const all = Array.from({ length: 10 }, (_v, i) => i)
+    expect(checkOperatedSlots(all).ok).toBe(true)
+  })
+
+  it('a phase-two operator holding one seat is not asked to prove the whole board', () => {
+    // They cannot: the other nine seats are somebody else's. The registry is where that is read.
+    const c = checkOperatedSlots([3])
+    expect(c.ok).toBe(true)
+    expect(c.providers).toBe(1)
+  })
+
+  it('flags two operated seats on one provider as wasting one of them', () => {
+    // Legal under the cap, and it means the pair fails together: the board thinks it gained two
+    // independent reviewers and gained one.
+    const sameProvider = BOARD.map((s, i) => (i === 1 ? { ...s, provider: BOARD[0]!.provider } : s))
+    const c = checkOperatedSlots([0, 1], sameProvider)
+    expect(c.ok).toBe(false)
+    expect(c.problems.join(' ')).toContain('do not fail independently')
+  })
+
+  it('refuses three operated seats', () => {
+    expect(checkOperatedSlots([0, 1, 2]).ok).toBe(false)
   })
 })

@@ -50,6 +50,8 @@ export const LIVENESS_FLOOR = 8
 export const SLOTS = 10
 export const MIN_PROVIDERS = 4
 export const MAX_OPEN_WEIGHTS = 3
+export const MAX_SLOTS_PER_OPERATOR_PHASE_TWO = 2
+
 
 export interface BoardCheck {
   readonly ok: boolean
@@ -66,6 +68,42 @@ export interface BoardCheck {
  * satisfy the registry, which only sees the provider *tag*, while making the six-of-ten threshold
  * weaker than it looks. The registry can only enforce what it is told.
  */
+/**
+ * What a phase-two operator can and cannot verify about the board.
+ *
+ * §5.2's constraints are properties of all ten seats, and an operator holding one or two cannot check
+ * them from their own configuration: they do not know who holds the rest. They can read it from the
+ * registry, which is why `verifyRegistryDiversity` exists. What they *can* check locally is that their own
+ * seats are within the operator cap and that they hold credentials for what they claim to run.
+ */
+export function checkOperatedSlots(slots: readonly number[], board: readonly SlotConfig[] = BOARD): BoardCheck {
+  const problems: string[] = []
+  const seats = board.filter((s) => slots.includes(s.slot))
+
+  if (seats.length !== slots.length) {
+    problems.push('operated slots include indices absent from the board definition')
+  }
+  if (slots.length === 0) problems.push('no slots configured')
+  if (slots.length > MAX_SLOTS_PER_OPERATOR_PHASE_TWO && slots.length !== SLOTS) {
+    problems.push(
+      `${slots.length} slots exceeds §5.2's two-slot operator cap; only the phase-one team holds all ${SLOTS}`,
+    )
+  }
+
+  const providers = new Set(seats.map((s) => s.provider))
+  if (slots.length === SLOTS) {
+    // Holding everything means the full-board constraints are yours to satisfy.
+    return checkBoard(board)
+  }
+  if (providers.size !== seats.length) {
+    // Two seats on one provider is legal for an operator, and it wastes one of the two: the pair fails
+    // together, so the board gains one independent reviewer where it thinks it gained two.
+    problems.push('two operated seats share a provider, so they do not fail independently')
+  }
+
+  return { ok: problems.length === 0, providers: providers.size, openWeights: seats.filter((s) => s.openWeights).length, problems }
+}
+
 export function checkBoard(board: readonly SlotConfig[] = BOARD): BoardCheck {
   const problems: string[] = []
 
