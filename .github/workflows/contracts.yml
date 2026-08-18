@@ -25,6 +25,8 @@ jobs:
       - name: Build
         run: forge build --sizes
         working-directory: contracts
+      - name: No block.number (§12)
+        run: bash contracts/check-no-block-number.sh
       - name: Test
         run: forge test -vv
         working-directory: contracts
