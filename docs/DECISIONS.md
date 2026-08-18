@@ -358,6 +358,74 @@ there is nothing about the proposal that a delay would reveal, and a delay would
 queue's occupancy per proposal without adding information. Reinstating it is a one-line change if you
 want the review window for its own sake.
 
+### 2.18 The messaging layer sits behind an adapter interface
+
+§12 names LayerZero, but nothing in `Satellite.sol` or `Receiver.sol` depends on it. All cross-chain
+traffic goes through two functions on `IBridgeAdapter`: `quoteFee` and `send`. Replacing LayerZero
+with anything else is a new adapter contract and no change to either.
+
+Quoting is part of the interface rather than an off-chain estimate someone passes in, because §15's
+batch trigger is "20x bridge cost" and a caller-supplied cost would let whoever triggers the batch
+decide when the batch triggers.
+
+### 2.19 The floor path opens on sustained illiquidity, not on one quote
+
+§8.5 says an installment settles against the floor when it "cannot clear the repayment swap within
+its slippage bound", and invariant 14 says the escrow decides, never the investee. The whitepaper
+does not say how illiquidity is established, and the obvious implementation is exploitable.
+
+If a single quote were enough, the attack is: push the pool thin, certify, settle against the floor
+at the recorded value, unwind the push. The investee gets to pick whichever path is cheaper that
+month, which is precisely the free option §8.5 refuses them.
+
+So certification takes repeated failures spaced hours apart, three strikes twelve hours apart by
+default, both governance-tunable within bounds. A day of genuine absence is expensive to manufacture
+in a way that one block is not. Recovery before the third strike authorises nothing.
+
+Two supporting rules keep the decision out of the investee's hands entirely. The token path closes
+by itself when the pool is thin, because `payInstallment` reverts on its minimum-out. And the floor
+path is closed unless certification has already happened, so in any given month exactly one path is
+open and it is not the investee who chose which.
+
+### 2.20 The minimum WETH per installment comes from the home chain
+
+The figure that decides which settlement path is open is set at registration from the escrow, not
+computed on the satellite chain. §8.5 gives that decision to the escrow, and letting a satellite
+derive it from local liquidity would move the decision to the chain with the manipulable pool.
+
+### 2.21 Infrastructure costs never touch a batch
+
+§9: "Bridge and swap costs are paid from the maintenance slice, so stakers' distributions are never
+haircut by infrastructure." So the bridge fee comes from native gas the satellite holds, and the
+caller's bounty comes from a separately funded WETH pool. A batch that crosses is the whole of what
+the swap produced. Asserted directly in `test_bridge_bountyComesFromMaintenanceNotTheBatch`.
+
+The home-chain buyback is deliberately *unbountied*, which is the opposite choice and worth saying
+why. Bridging needs a bounty because it is one transaction on a foreign chain that benefits people
+who are not there. A buyback benefits every holder of the vintage it credits, all of whom are on this
+chain and already motivated, and a bounty would be paid out of the very distribution it exists to
+deliver.
+
+### 2.22 Each queued repayment keeps its own vintage and its own WETH
+
+The receiver queues per-entry amounts rather than a pooled total. Pooling and apportioning afterwards
+is arithmetically equivalent only if every entry clears at the same price, and §9's requirement that
+"large purchases split across intervals" guarantees they will not. Keeping the entries separate means
+the CODE bought with a given repayment is credited to the season that funded that deal, at the price
+that repayment actually got.
+
+A repayment larger than the per-execution cap is partially converted, with the remainder left at the
+head of the queue. The obligation is reported to the escrow only when the last of it converts, so a
+split repayment is never credited twice.
+
+### 2.23 The satellite's governor must be a cross-chain executor, not a key
+
+The home-chain timelock owns the protocol (§14) but cannot call a function on another chain directly.
+`Satellite.governor` therefore has to be an executor that acts only on messages from that timelock.
+Pointing it at an ordinary key would put a satellite's slippage bounds and strike thresholds outside
+governance, which §14 does not permit. **This is a deployment requirement, not something the contract
+can enforce**, and it is the sharpest remaining edge in the cross-chain design.
+
 ---
 
 ## 3. Ruled on after review

@@ -135,3 +135,67 @@ contract OraclePriceStub {
 
     function poke() external {}
 }
+
+contract MockToken is ERC20 {
+    constructor(string memory n, string memory s) ERC20(n, s) {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+}
+
+/// @dev A router that swaps at a settable rate out of its own funded balances, so a test can make a
+///      pool thin by lowering the rate rather than by modelling reserves. Honours amountOutMin
+///      exactly as a real router does, which is what the slippage bounds are tested against.
+contract MockDex is IUniswapV2Router02 {
+    /// @dev Output per 1e18 of input, 18 decimals.
+    mapping(address => mapping(address => uint256)) public rate;
+
+    error TooLittleOut();
+    error NoLiquidity();
+
+    function setRate(address tokenIn, address tokenOut, uint256 r) external {
+        rate[tokenIn][tokenOut] = r;
+    }
+
+    function getAmountsOut(uint256 amountIn, address[] calldata path) external view returns (uint256[] memory amounts) {
+        uint256 r = rate[path[0]][path[path.length - 1]];
+        if (r == 0) revert NoLiquidity();
+        amounts = new uint256[](2);
+        amounts[0] = amountIn;
+        amounts[1] = (amountIn * r) / 1e18;
+    }
+
+    function swapExactTokensForTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256
+    ) external returns (uint256[] memory amounts) {
+        address tokenIn = path[0];
+        address tokenOut = path[path.length - 1];
+        uint256 r = rate[tokenIn][tokenOut];
+        if (r == 0) revert NoLiquidity();
+
+        uint256 out = (amountIn * r) / 1e18;
+        if (out < amountOutMin) revert TooLittleOut();
+
+        IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
+        IERC20(tokenOut).transfer(to, out);
+
+        amounts = new uint256[](2);
+        amounts[0] = amountIn;
+        amounts[1] = out;
+    }
+
+    function swapExactTokensForTokensSupportingFeeOnTransferTokens(
+        uint256,
+        uint256,
+        address[] calldata,
+        address,
+        uint256
+    ) external pure {
+        revert("unused");
+    }
+}

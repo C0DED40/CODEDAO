@@ -39,6 +39,7 @@ Compiled as constants. Changing any of these is a redeploy, not a proposal.
 | Milestone window | per manifest, max 12 months each | `Escrow` |
 | Tranche claim expiry | 6 months per unlocked tranche | `Escrow` |
 | Repayment batch trigger | 20x bridge cost or 30 days | `Satellite` |
+| Bridge cost basis | adapter `quoteFee()` at batch time | `Satellite` |
 | Return split | 50% burn / 50% vintage | `Receiver` |
 | Phase two trigger | end of season 8, or 2,000 WETH cumulative deployed | `Saine` |
 
@@ -55,7 +56,9 @@ values below are proposals awaiting review.
 | Buyback max slippage | 150 bps | Large purchases split across intervals per §9, so each tranche should clear comfortably. |
 | Buyback split threshold | 1% of pool reserves | Above this a purchase is split across intervals rather than executed whole. |
 | Minimum launch stake | governance opens only once 50 seats are filled | Prevents a launch where everyone is a Guardian and quorum is unreachable. See DECISIONS §2.7. |
-| Bridge cost basis | LayerZero `quote()` at batch time | §15's "20x bridge cost" needs a live figure; the messaging layer is the only honest source. |
+| Illiquidity strikes / gap | 3 strikes, 12h apart | A single quote showing thin liquidity is cheap to manufacture; a day of it is not. See DECISIONS §2.19. |
+| Bridge bounty | 0.002 WETH from a maintenance-funded pool | Never drawn from a batch (§9). |
+| Buyback interval / cap | 10 minutes, 5 WETH per execution | Implements §9's "large purchases split across intervals". |
 | Rollover bounty | to be set | Funded from a maintenance-topped pool holding no other rights. See DECISIONS §3.6. |
 
 ## Notes

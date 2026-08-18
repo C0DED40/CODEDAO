@@ -50,14 +50,14 @@ oracle and swap purposes; see `docs/DECISIONS.md` §1.1 for why v2 rather than v
 
 ## Status
 
-Ten of the twelve contracts are built and tested; 236 tests pass. A funding proposal runs end to end
+All twelve contracts are built and tested; 274 tests pass. A funding proposal runs end to end
 in `test/integration/Lifecycle.t.sol`: Guardian submits, the Many vote, the ten-agent board commits
 and reveals, six approve, the timelock executes, and WETH reaches the investee.
 
 Outstanding:
 
-- `Satellite.sol` and `Receiver.sol`, the cross-chain repayment leg (§9). Blocked on a LayerZero
-  endpoint decision.
+- A `LayerZeroAdapter` implementing `IBridgeAdapter`. Nothing in `Satellite.sol` or `Receiver.sol`
+  depends on a particular messaging layer, so this is one small contract and no changes elsewhere.
 - Deploy script. Note that deployment requires address prediction, because the token needs the
   treasury and the timelock needs the governor, and both pairs are circular and immutable by design.
   See `docs/DECISIONS.md` §2.16.
