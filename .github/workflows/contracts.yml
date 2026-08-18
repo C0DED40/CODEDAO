@@ -1,0 +1,32 @@
+name: contracts
+
+on:
+  push:
+    paths: ["contracts/**", ".github/workflows/contracts.yml"]
+  pull_request:
+    paths: ["contracts/**", ".github/workflows/contracts.yml"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch dependencies
+        run: ./contracts/setup.sh
+      - name: Format check
+        run: forge fmt --check
+        working-directory: contracts
+      - name: Build
+        run: forge build --sizes
+        working-directory: contracts
+      - name: Test
+        run: forge test -vv
+        working-directory: contracts
+        env:
+          FOUNDRY_PROFILE: ci
