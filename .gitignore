@@ -1,0 +1,15 @@
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/vendor/node_modules/
+contracts/lib/
+node_modules/
+.env
+.env.*
+!.env.example
+frontend/.next/
+agent/dist/
+*.log
+
+# git bundles used to hand history between machines
+*.bundle

@@ -1,0 +1,14 @@
+{
+  "name": "code-dao-vendor",
+  "private": true,
+  "description": "Solidity dependencies vendored via npm so the build needs no git submodules.",
+  "dependencies": {
+    "@openzeppelin/contracts": "5.1.0",
+    "@uniswap/v2-core": "1.0.1",
+    "@uniswap/v2-periphery": "1.1.0-beta.0",
+    "@chainlink/contracts": "1.5.0",
+    "ds-test": "github:dapphub/ds-test",
+    "forge-std": "1.1.2",
+    "solady": "0.1.26"
+  }
+}
