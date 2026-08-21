@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { ConfigError, loadConfig } from '../src/config.js'
+import {
+  assertChainIdMatch,
+  ConfigError,
+  homeNetworkName,
+  loadConfig,
+  ROBINHOOD_MAINNET_CHAIN_ID,
+  ROBINHOOD_TESTNET_CHAIN_ID,
+} from '../src/config.js'
 
 const A = '0x1111111111111111111111111111111111111111'
 
 function env(overrides: Record<string, string | undefined> = {}): Record<string, string | undefined> {
   const base: Record<string, string | undefined> = {
     SAINE_RPC_URL: 'http://localhost:8545',
-    SAINE_CHAIN_ID: '4663',
+    SAINE_CHAIN_ID: String(ROBINHOOD_MAINNET_CHAIN_ID),
     SAINE_REGISTRY_ADDRESS: A,
     SAINE_GOVERNOR_ADDRESS: A,
     SAINE_ESCROW_ADDRESS: A,
@@ -69,7 +76,22 @@ describe('loadConfig', () => {
     const c = loadConfig(env())
     expect(c.slotKeys.size).toBe(10)
     expect(c.domain.verifyingContract).toBe(A)
-    expect(c.domain.chainId).toBe(4663)
+    expect(c.domain.chainId).toBe(ROBINHOOD_MAINNET_CHAIN_ID)
+  })
+
+  it('accepts the Robinhood testnet chain id', () => {
+    const c = loadConfig(env({ SAINE_CHAIN_ID: String(ROBINHOOD_TESTNET_CHAIN_ID) }))
+    expect(c.chainId).toBe(ROBINHOOD_TESTNET_CHAIN_ID)
+    expect(c.domain.chainId).toBe(ROBINHOOD_TESTNET_CHAIN_ID)
+    expect(homeNetworkName(c.chainId)).toBe('robinhood-testnet')
+  })
+
+  it('refuses an RPC that is not the configured chain', () => {
+    // A harness pointed at testnet with the mainnet id signs a domain the registry will reject.
+    expect(() => assertChainIdMatch(ROBINHOOD_MAINNET_CHAIN_ID, ROBINHOOD_TESTNET_CHAIN_ID)).toThrow(
+      /SAINE_CHAIN_ID is 4663.*RPC reports 46630/,
+    )
+    expect(() => assertChainIdMatch(ROBINHOOD_TESTNET_CHAIN_ID, ROBINHOOD_TESTNET_CHAIN_ID)).not.toThrow()
   })
 
   it('throws on a missing variable rather than defaulting', () => {

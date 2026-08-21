@@ -45,10 +45,28 @@ forge test
 
 Deep fuzzing and invariants: `forge test --profile deep`.
 
+## Interface
+
+```
+cd frontend
+npm install
+npm run dev
+```
+
 ## Deployment
 
-Robinhood Chain (Arbitrum-stack L2, chain ID 4663, ETH gas). Uniswap v2 is the canonical pool for
-oracle and swap purposes; see `docs/DECISIONS.md` §1.1 for why v2 rather than v3.
+Robinhood Chain (Arbitrum-stack L2, ETH gas). Uniswap v2 is the canonical pool for oracle and swap
+purposes; see `docs/DECISIONS.md` §1.1 for why v2 rather than v3.
+
+| Network | Chain ID | Foundry RPC alias | Explorer |
+| --- | --- | --- | --- |
+| Mainnet | 4663 | `robinhood` | robinhoodchain.blockscout.com |
+| Testnet | 46630 | `robinhood_testnet` | explorer.testnet.chain.robinhood.com |
+
+`forge script` takes `--rpc-url robinhood` or `--rpc-url robinhood_testnet` (set `ROBINHOOD_RPC_URL` /
+`ROBINHOOD_TESTNET_RPC_URL`). The SAINE harness uses the same split: `SAINE_CHAIN_ID=4663` or `46630`
+with `SAINE_RPC_URL` at the matching node. Attestations are EIP-712-bound to that id, so the two
+must agree; `saine check` reads the node and refuses a mismatch.
 
 ## Status
 

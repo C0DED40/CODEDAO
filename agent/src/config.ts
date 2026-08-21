@@ -24,6 +24,30 @@ export class ConfigError extends Error {
   }
 }
 
+/** Robinhood Chain mainnet. The production home chain. */
+export const ROBINHOOD_MAINNET_CHAIN_ID = 4663
+/** Robinhood Chain public testnet. */
+export const ROBINHOOD_TESTNET_CHAIN_ID = 46630
+
+export function homeNetworkName(chainId: number): 'robinhood' | 'robinhood-testnet' | 'unknown' {
+  if (chainId === ROBINHOOD_MAINNET_CHAIN_ID) return 'robinhood'
+  if (chainId === ROBINHOOD_TESTNET_CHAIN_ID) return 'robinhood-testnet'
+  return 'unknown'
+}
+
+/**
+ * Attestations carry `chainId` in the EIP-712 domain, so a harness pointed at testnet with the
+ * mainnet id (or the reverse) produces signatures the registry will reject. Caught here rather than
+ * at the first commit window.
+ */
+export function assertChainIdMatch(configured: number, rpcChainId: number): void {
+  if (configured !== rpcChainId) {
+    throw new ConfigError(
+      `SAINE_CHAIN_ID is ${configured} (${homeNetworkName(configured)}) but the RPC reports ${rpcChainId} (${homeNetworkName(rpcChainId)})`,
+    )
+  }
+}
+
 export interface HarnessConfig {
   readonly rpcUrl: string
   readonly chainId: number

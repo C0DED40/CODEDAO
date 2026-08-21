@@ -12,6 +12,26 @@ npm install
 npm test
 ```
 
+Copy `.env.example` to `.env` and fill it. `npm start` and `npm run check` load that file from this directory.
+
+## Home chain
+
+The harness talks to whatever `SAINE_RPC_URL` and `SAINE_CHAIN_ID` name. The two home-chain values:
+
+```
+# Robinhood mainnet
+SAINE_CHAIN_ID=4663
+SAINE_RPC_URL=https://rpc.mainnet.chain.robinhood.com
+
+# Robinhood testnet
+SAINE_CHAIN_ID=46630
+SAINE_RPC_URL=https://rpc.testnet.chain.robinhood.com
+```
+
+They must agree. Attestations include the chain id in the EIP-712 domain, so a harness pointed at
+testnet with the mainnet id produces signatures the registry will reject. `saine check` reads the
+node and refuses a mismatch. Public RPCs are rate-limited; a provider URL is fine in the same slot.
+
 ## Status
 
 Feature-complete against §5. 120 tests.
@@ -88,9 +108,9 @@ A single-seat operator cannot verify the board's provider diversity from their o
 the other nine seats are somebody else's. `checkOperatedSlots` checks what they can check locally, and the
 registry's `distinctProviders()` is where the board-wide property is read.
 
-Run `saine check` before anything else. It validates the configuration and the board composition and
-exits, which costs nothing; discovering a missing credential at the first commit window costs a
-lapsed round.
+Run `saine check` before anything else. It validates the configuration and the board composition,
+confirms `SAINE_CHAIN_ID` matches the connected node, and exits; discovering a missing credential at
+the first commit window costs a lapsed round.
 
 ABIs in `src/chain/abi.ts` are generated from `contracts/out` by `npm run gen:abi`. Regenerate after any
 change to a contract interface: hand-transcribed ABIs drift silently, and the failure looks like a chain
