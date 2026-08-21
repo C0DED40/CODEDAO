@@ -15,10 +15,10 @@ const SIDE = [
 
 export default function StakePage() {
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-10 md:px-8 md:py-16">
+    <div className="mx-auto max-w-[1400px] px-4 py-8 md:px-8 md:py-16">
       <Back />
       <div className="mt-8 grid items-start gap-8 lg:grid-cols-12">
-        <aside className="grid gap-6 sm:grid-cols-2 lg:col-span-3 lg:grid-cols-1">
+        <aside className="grid grid-cols-2 gap-6 lg:col-span-3 lg:grid-cols-1">
           {SIDE.map((s) => (
             <div key={s.label}>
               <p className="text-xs uppercase tracking-[0.14em] text-muted">{s.label}</p>
@@ -26,7 +26,7 @@ export default function StakePage() {
             </div>
           ))}
         </aside>
-        <div className="lg:col-span-6">
+        <div className="order-first lg:order-none lg:col-span-6">
           <StakeDesk />
         </div>
         <aside className="lg:col-span-3">

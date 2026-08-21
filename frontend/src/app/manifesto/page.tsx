@@ -26,9 +26,9 @@ const LINES = [
 
 export default function ManifestoPage() {
   return (
-    <div className="mx-auto max-w-[800px] px-4 py-16 md:px-8 md:py-24">
+    <div className="mx-auto max-w-[800px] px-4 py-12 md:px-8 md:py-24">
       <Reveal>
-        <h1 className="text-4xl tracking-tight text-accent md:text-6xl">Manifesto</h1>
+        <h1 className="text-3xl tracking-tight text-accent md:text-6xl">Manifesto</h1>
       </Reveal>
       <div className="mt-16 space-y-16">
         {LINES.map((line, i) => (

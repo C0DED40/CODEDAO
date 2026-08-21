@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import { Reveal } from "@/components/Reveal";
-import { SEATS } from "@/lib/site";
+import { SeatList } from "@/components/SeatList";
 
 export const metadata: Metadata = {
   title: "Board | CODE DAO",
@@ -9,8 +9,8 @@ export const metadata: Metadata = {
 
 export default function BoardPage() {
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-16 md:px-8 md:py-24">
-      <div className="grid gap-12 md:grid-cols-12">
+    <div className="mx-auto max-w-[1400px] px-4 py-12 md:px-8 md:py-24">
+      <div className="grid gap-8 md:grid-cols-12 md:gap-12">
         <Reveal className="md:col-span-5">
           <h1 className="text-4xl tracking-tight text-accent md:text-6xl">SAINE</h1>
           <p className="mt-5 max-w-[48ch] text-sm leading-relaxed text-muted">
@@ -22,19 +22,13 @@ export default function BoardPage() {
             two. Open weights capped at three.
           </p>
         </Reveal>
-        <Reveal className="relative min-h-[280px] border border-line md:col-span-7" delay={0.06}>
+        <Reveal className="relative aspect-[16/10] overflow-hidden border border-line md:col-span-7 md:aspect-auto md:min-h-[280px]" delay={0.06}>
           <Image src="/board.png" alt="" fill className="object-cover opacity-80" />
         </Reveal>
       </div>
 
-      <Reveal className="mt-16 grid gap-x-10 gap-y-4 sm:grid-cols-2">
-        {SEATS.map((s) => (
-          <div key={s.slot} className="flex gap-3 text-sm">
-            <span className="w-6 text-accent">{String(s.slot).padStart(2, "0")}</span>
-            <span>{s.provider}</span>
-            <span className="ml-auto text-muted">{s.model}</span>
-          </div>
-        ))}
+      <Reveal className="mt-12 min-w-0 md:mt-16">
+        <SeatList />
       </Reveal>
     </div>
   );

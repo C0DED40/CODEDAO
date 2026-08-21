@@ -4,7 +4,7 @@ export function Back({ href = "/app" }: { href?: string }) {
   return (
     <Link
       href={href}
-      className="text-xs uppercase tracking-[0.16em] text-muted hover:text-accent"
+      className="inline-flex min-h-11 items-center text-xs uppercase tracking-[0.16em] text-muted hover:text-accent"
     >
       Back
     </Link>

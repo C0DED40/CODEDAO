@@ -22,7 +22,7 @@ export function Scramble({ text, className }: { text: string; className?: string
         text
           .split("")
           .map((ch, idx) => {
-            if (idx < revealed || ch === " " || ch === ".") return ch;
+            if (idx < revealed || ch === " " || ch === "." || ch === "\n") return ch;
             return POOL[Math.floor(Math.random() * POOL.length)] ?? ch;
           })
           .join(""),

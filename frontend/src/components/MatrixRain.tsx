@@ -18,11 +18,15 @@ export function MatrixRain() {
 
     let frame = 0;
     let running = true;
-    const cell = 16;
+    let cell = 16;
+    let skip = 2;
     let cols = 0;
     let drops: number[] = [];
 
     const resize = () => {
+      const mobile = window.innerWidth < 768;
+      cell = mobile ? 22 : 16;
+      skip = mobile ? 3 : 2;
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
       cols = Math.ceil(canvas.width / cell);
@@ -32,7 +36,7 @@ export function MatrixRain() {
     const tick = () => {
       if (!running) return;
       frame += 1;
-      if (frame % 2 === 0) {
+      if (!document.hidden && frame % skip === 0) {
         ctx.fillStyle = "rgba(7, 9, 7, 0.12)";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.font = `${cell}px ui-monospace, monospace`;

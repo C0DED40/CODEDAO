@@ -15,6 +15,14 @@
   --z-scan: 40;
   --z-nav: 50;
   --z-overlay: 60;
+  --nav-bar: 3.5rem;
+  --nav-offset: calc(var(--nav-bar) + env(safe-area-inset-top, 0px));
+}
+
+@media (min-width: 768px) {
+  :root {
+    --nav-bar: 4rem;
+  }
 }
 
 @theme inline {
@@ -35,6 +43,24 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
+  overflow-x: clip;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+a,
+button {
+  touch-action: manipulation;
+}
+
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
 }
 
 .font-display,

@@ -1,8 +1,15 @@
 import Image from "next/image";
 import { Hero } from "@/components/Hero";
 import { Reveal } from "@/components/Reveal";
+import { SeatList } from "@/components/SeatList";
 import { Status } from "@/components/Status";
-import { SEATS } from "@/lib/site";
+
+const PIPE = [
+  ["origin", "50 guardians submit deals. Two per season. Bond: 1000 CODE."],
+  ["suffrage", "Everyone else votes. Quorum is 10% of seasonal power. Five days."],
+  ["adjudicate", "Ten models. Six must approve. Eight must reveal. Then the timelock."],
+  ["execute", "WETH leaves the treasury. Not before."],
+] as const;
 
 export default function Home() {
   return (
@@ -11,29 +18,24 @@ export default function Home() {
       <Status />
 
       <section className="border-t border-line">
-        <div className="mx-auto max-w-[1400px] px-4 py-24 md:px-8 md:py-32">
+        <div className="mx-auto max-w-[1400px] px-4 py-12 md:px-8 md:py-32">
           <Reveal>
-            <pre className="overflow-x-auto text-sm leading-8 text-fg md:text-base">
-              {`$ origin
-  50 guardians submit deals. Two per season. Bond: 1000 CODE.
-
-$ suffrage
-  Everyone else votes. Quorum is 10% of seasonal power. Five days.
-
-$ adjudicate
-  Ten models. Six must approve. Eight must reveal. Then the timelock.
-
-$ execute
-  WETH leaves the treasury. Not before.`}
-            </pre>
+            <dl className="grid gap-8 text-sm leading-7 text-fg md:text-base md:leading-8">
+              {PIPE.map(([cmd, body]) => (
+                <div key={cmd}>
+                  <dt className="text-accent">{`$ ${cmd}`}</dt>
+                  <dd className="mt-2 max-w-[60ch] text-fg">{body}</dd>
+                </div>
+              ))}
+            </dl>
           </Reveal>
         </div>
       </section>
 
-      <section className="relative min-h-[100dvh] overflow-hidden border-t border-line">
+      <section className="relative overflow-hidden border-t border-line md:min-h-[100dvh]">
         <Image src="/board.png" alt="" fill className="object-cover opacity-30" />
         <div className="absolute inset-0 bg-bg/75" />
-        <div className="relative mx-auto grid min-h-[100dvh] max-w-[1400px] items-center gap-12 px-4 py-24 md:grid-cols-12 md:px-8">
+        <div className="relative mx-auto grid max-w-[1400px] items-center gap-10 px-4 py-12 md:min-h-[100dvh] md:grid-cols-12 md:gap-12 md:px-8 md:py-24">
           <Reveal className="md:col-span-5">
             <h2 className="text-3xl tracking-tight text-fg md:text-5xl">
               The board reads the code
@@ -43,22 +45,14 @@ $ execute
               model board between the vote and the money.
             </p>
           </Reveal>
-          <Reveal className="md:col-span-7" delay={0.08}>
-            <ol className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
-              {SEATS.map((s) => (
-                <li key={s.slot} className="flex gap-3 text-sm text-fg">
-                  <span className="w-6 text-accent">{String(s.slot).padStart(2, "0")}</span>
-                  <span className="text-muted">{s.provider}</span>
-                  <span className="ml-auto font-normal text-fg">{s.model}</span>
-                </li>
-              ))}
-            </ol>
+          <Reveal className="min-w-0 md:col-span-7" delay={0.08}>
+            <SeatList />
           </Reveal>
         </div>
       </section>
 
       <section className="border-t border-line">
-        <div className="mx-auto grid max-w-[1400px] gap-12 px-4 py-24 md:grid-cols-2 md:px-8 md:py-32">
+        <div className="mx-auto grid max-w-[1400px] gap-8 px-4 py-12 md:grid-cols-2 md:gap-12 md:px-8 md:py-32">
           <Reveal>
             <div className="relative aspect-[4/3] overflow-hidden border border-line">
               <Image src="/vault.png" alt="Vault door with a single green lamp" fill className="object-cover" />

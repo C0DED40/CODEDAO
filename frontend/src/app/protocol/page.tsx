@@ -27,9 +27,9 @@ const STEPS = [
 
 export default function ProtocolPage() {
   return (
-    <div className="mx-auto max-w-[900px] px-4 py-16 md:px-8 md:py-24">
+    <div className="mx-auto max-w-[900px] px-4 py-12 md:px-8 md:py-24">
       <Reveal>
-        <h1 className="text-4xl tracking-tight text-accent md:text-6xl">Protocol</h1>
+        <h1 className="text-3xl tracking-tight text-accent md:text-6xl">Protocol</h1>
         <p className="mt-4 max-w-[55ch] text-sm leading-relaxed text-muted">
           Money does not move on a vote. It moves after the board, after the delay, into an escrow
           that can halt.
@@ -40,7 +40,7 @@ export default function ProtocolPage() {
         {STEPS.map((s, i) => (
           <Reveal key={s.cmd} delay={i * 0.04}>
             <li>
-              <p className="text-accent">{`$ ${s.cmd}`}</p>
+              <p className="break-all text-accent sm:break-normal">{`$ ${s.cmd}`}</p>
               <p className="mt-3 max-w-[60ch] text-sm leading-relaxed text-fg">{s.body}</p>
             </li>
           </Reveal>
@@ -48,7 +48,7 @@ export default function ProtocolPage() {
       </ol>
 
       <Reveal className="mt-16">
-        <Cta href="/app/proposals" variant="ghost">
+        <Cta href="/app/proposals" variant="ghost" className="w-full justify-between sm:w-auto sm:justify-start">
           Proposals
         </Cta>
       </Reveal>

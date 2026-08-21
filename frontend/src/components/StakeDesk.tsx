@@ -8,7 +8,7 @@ export function StakeDesk() {
 
   return (
     <form
-      className="border border-line bg-bg-raised p-6 md:p-8"
+      className="border border-line bg-bg-raised p-4 md:p-8"
       onSubmit={(e) => e.preventDefault()}
     >
       <p className="text-accent">$ stake</p>

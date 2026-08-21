@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, Oxanium } from "next/font/google";
 import { MatrixRain } from "@/components/MatrixRain";
 import { Scanlines } from "@/components/Scanlines";
@@ -21,6 +21,14 @@ export const metadata: Metadata = {
   title: "CODE DAO",
   description:
     "A decentralised venture organisation. Capital sits in an autonomous treasury. Ten agents read the code before a token moves.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#070907",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

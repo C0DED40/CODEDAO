@@ -46,9 +46,9 @@ const GROUPS = [
 
 export default function TokenPage() {
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-16 md:px-8 md:py-24">
+    <div className="mx-auto max-w-[1400px] px-4 py-12 md:px-8 md:py-24">
       <Reveal>
-        <h1 className="text-4xl tracking-tight text-accent md:text-6xl">Token economy</h1>
+        <h1 className="text-3xl tracking-tight text-accent md:text-6xl">Token economy</h1>
         <p className="mt-4 max-w-[55ch] text-sm leading-relaxed text-muted">
           CODE is the unit. DCODE is the stake. Tax fills the treasury. Vintage is how returns come
           back to the people who sat the season.
@@ -63,7 +63,7 @@ export default function TokenPage() {
               {g.rows.map(([k, v]) => (
                 <div key={k} className="grid grid-cols-[1fr_auto] gap-4">
                   <dt className="text-muted">{k}</dt>
-                  <dd className="text-fg">{v}</dd>
+                  <dd className="min-w-0 text-right text-fg break-words">{v}</dd>
                 </div>
               ))}
             </dl>
