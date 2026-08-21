@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+/* Dark-only. The brief is matrix / terminal; light mode would be a different site. */
+:root {
+  --bg: #070907;
+  --bg-raised: #0c120c;
+  --fg: #c8f0c8;
+  --muted: #6d9a6d;
+  --accent: #5eeb6a;
+  --line: #1c3a1c;
+  --danger: #eb5e5e;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --z-rain: 0;
+  --z-content: 1;
+  --z-scan: 40;
+  --z-nav: 50;
+  --z-overlay: 60;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-raised: var(--bg-raised);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-line: var(--line);
+  --color-danger: var(--danger);
+  --font-display: var(--font-oxanium);
+  --font-mono: var(--font-ibm-plex-mono);
+  --font-sans: var(--font-oxanium);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
+}
+
+.font-display,
+h1,
+h2,
+h3 {
+  font-family: var(--font-display), ui-sans-serif, sans-serif;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.cursor-blink {
+  animation: blink 1.1s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor-blink {
+    animation: none;
+  }
+}

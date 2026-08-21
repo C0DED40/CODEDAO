@@ -4,15 +4,17 @@
  *
  *   saine watch    poll for open rounds and drive commit and reveal
  *   saine keep     run the permissionless calls nobody is obliged to make
- *   saine check    validate configuration and board composition, then exit
+ *   saine check    validate configuration, board composition, and RPC chain id, then exit
  *
  * `check` exists because everything else is expensive to get wrong at the wrong moment. Discovering a
  * missing credential at the first commit window costs a lapsed round; discovering it here costs nothing.
  */
 
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { createPublicClient, createWalletClient, http } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { loadConfig } from './config.js'
+import { assertChainIdMatch, homeNetworkName, loadConfig } from './config.js'
 import { buildBoard } from './models/build.js'
 import { checkOperatedSlots } from './board.js'
 import { ChainReader, ViemRelayer } from './chain/index.js'
@@ -33,9 +35,17 @@ function serialise(v: unknown): unknown {
   return JSON.parse(JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x)))
 }
 
+function loadDotEnv(): void {
+  const path = resolve(process.cwd(), '.env')
+  if (existsSync(path)) process.loadEnvFile(path)
+}
+
 async function main(): Promise<void> {
+  loadDotEnv()
   const command = process.argv[2] ?? 'check'
   const cfg = loadConfig()
+  const liveChainId = await createPublicClient({ transport: http(cfg.rpcUrl) }).getChainId()
+  assertChainIdMatch(cfg.chainId, liveChainId)
 
   // Phase one holds all ten and must satisfy §5.2 locally. A phase-two operator holds one or two and
   // cannot: the rest of the board is somebody else's, and the registry is the place to read it.
@@ -58,6 +68,7 @@ async function main(): Promise<void> {
       openWeights: composition.openWeights,
       registry: cfg.addresses.saine,
       chainId: cfg.chainId,
+      network: homeNetworkName(cfg.chainId),
     })
     return
   }

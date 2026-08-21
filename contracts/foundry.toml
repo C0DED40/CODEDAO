@@ -48,5 +48,8 @@ int_types = "long"
 robinhood = "${ROBINHOOD_RPC_URL}"
 robinhood_testnet = "${ROBINHOOD_TESTNET_RPC_URL}"
 
+# Blockscout. The key field is required by Foundry and ignored by the explorer.
+# Mainnet 4663; testnet 46630.
 [etherscan]
-robinhood = {key = "${ROBINHOOD_ETHERSCAN_KEY}", chain = 4663}
+robinhood = { key = "${ROBINHOOD_ETHERSCAN_KEY}", chain = 4663, url = "https://robinhoodchain.blockscout.com/api/" }
+robinhood_testnet = { key = "${ROBINHOOD_ETHERSCAN_KEY}", chain = 46630, url = "https://explorer.testnet.chain.robinhood.com/api/" }

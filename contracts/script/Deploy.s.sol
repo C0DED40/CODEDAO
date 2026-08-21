@@ -226,7 +226,7 @@ library DeployLib {
     }
 }
 
-/// @notice `forge script script/Deploy.s.sol --broadcast`
+/// @notice `forge script script/Deploy.s.sol --rpc-url robinhood_testnet --broadcast` (or `robinhood`)
 contract Deploy is Script {
     function run() external returns (Deployed memory d) {
         DeployConfig memory cfg = _config();
